@@ -1,6 +1,6 @@
 --[[----------------------------------------------------------------------------
 
-Options.lua
+PresetsDialog.lua
 
 Manages options for plugin
  
