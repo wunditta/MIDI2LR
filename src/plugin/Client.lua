@@ -22,8 +22,11 @@ MIDI2LR.  If not, see <http://www.gnu.org/licenses/>.
 local LrMobdebug = import 'LrMobdebug'
 LrMobdebug.start()
 --]]-----------end debug section
-local Database = require 'Database'
-local LrTasks = import 'LrTasks'
+local Database          = require 'Database'
+local LrTasks           = import 'LrTasks'
+local LrSelection       = import 'LrSelection'
+local LrApplication     = import 'LrApplication'
+
 -- Main task
 LrTasks.startAsyncTask(
   function()
@@ -81,6 +84,7 @@ LrTasks.startAsyncTask(
     local Presets         = require 'Presets'
     local Profiles        = require 'Profiles'
     local Virtual         = require 'Virtual'
+    local CopySettings    = require 'CopySettings'
     local LrApplication       = import 'LrApplication'
     local LrApplicationView   = import 'LrApplicationView'
     local LrDevelopController = import 'LrDevelopController'
@@ -90,14 +94,45 @@ LrTasks.startAsyncTask(
     --global variables
     MIDI2LR = {PARAM_OBSERVER = {}, SERVER = {}, CLIENT = {}, RUNNING = true} --non-local but in MIDI2LR namespace
     --local variables
-    local LastParam           = ''
+    local LastParam           = ''    -- Last parameter of any type
+    local LastParamParam      = ''    -- Last paramter of type 'parameter'
+    local FineAdjustments     = {}    -- Used for fine-tuning adjustments; holds the last view time and amount of adjustments
+    local FineAdjustAverage   = 5     -- The number of last adjustments recorded in FineAdjustments
+    local FineLastValue       = 0
+    local FineTotal           = 0     -- Holds the total amount of all changes evaluated if auto finetuning should be activated
+    local FineMinTryPeriod    = 1     -- Before that time has passed when moving a slider very slow fine-tuning is not activated; this is also used to stop probing if no input since last
+    local FineMinChange       = 0.02  -- The total change (FineTotal) must be >= to activate fine-tuning
+    local FineActivated       = nil   -- Time when last activated
+    local FineActivationValue = nil   -- The value when it was activated
+    local FineManual          = nil   -- True, if fine-tuning was started by a button
     local UpdateParamPickup, UpdateParamNoPickup, UpdateParam
-    local sendIsConnected = false --tell whether send socket is up or not
+    local sendIsConnected     = false --tell whether send socket is up or not
+    local orientation         = nil
     --local constants--may edit these to change program behaviors
     local BUTTON_ON        = 0.40 -- sending 1.0, but use > BUTTON_ON because of note keypressess not hitting 100%
     local PICKUP_THRESHOLD = 0.03 -- roughly equivalent to 4/127
     local RECEIVE_PORT     = 58763
     local SEND_PORT        = 58764
+
+    local function toggleFinetuning(param, force)
+      if param == '' then
+        LrDialogs.message(LOC("$$$/MIDI2LR/Finetune/Error/ChangeParameterFirst=You need to change a develop setting first. Activate again to fine-tune that setting then."), '', 'warning')
+        return
+      end
+      if (force == nil and not FineActivated) or force then
+        FineActivated = os.clock()
+        FineActivationValue = CU.LRValueToMIDIValue(param)
+        FineManual = true
+        CU.setController(param, 0.5)
+      else
+        FineActivated = nil
+        FineAdjustments = {}
+        FineActivationValue = nil
+        FineLastValue = 0
+        FineTotal = 0
+        CU.setController(LastParamParam, CU.LRValueToMIDIValue(LastParamParam))
+      end
+    end
 
     local GradeFocusTable = {
       SplitToningShadowHue = 'shadow',
@@ -149,12 +184,25 @@ LrTasks.startAsyncTask(
       ColorGradeShadow                = CU.wrapFOM(LrDevelopController.setActiveColorGradingView,'shadow'),
       ColorLabelNone                  = function() LrSelection.setColorLabel("none") end,
       ConvertToGrayscale              = CU.fToggleTFasync('ConvertToGrayscale'),
+      CopyPreset1copy                 = CopySettings.CopySettingsCopy(1),
+      CopyPreset1paste                = CopySettings.CopySettingsPaste(1),
+      CopyPreset2copy                 = CopySettings.CopySettingsCopy(2),
+      CopyPreset2paste                = CopySettings.CopySettingsPaste(2),
+      CopyPreset3copy                 = CopySettings.CopySettingsCopy(3),
+      CopyPreset3paste                = CopySettings.CopySettingsPaste(3),
+      CopyPreset4copy                 = CopySettings.CopySettingsCopy(4),
+      CopyPreset4paste                = CopySettings.CopySettingsPaste(4),
+      CopyPreset5copy                 = CopySettings.CopySettingsCopy(5),
+      CopyPreset5paste                = CopySettings.CopySettingsPaste(5),
+      CopyPreset6copy                 = CopySettings.CopySettingsCopy(6),
+      CopyPreset6paste                = CopySettings.CopySettingsPaste(6),
       CropConstrainToWarp             = CU.fToggle01('CropConstrainToWarp'),
       CropOverlay                     = CU.fToggleTool('crop'),
       CycleLoupeViewInfo              = LrApplicationView.cycleLoupeViewInfo,
       CycleMaskOverlayColor           = CU.fSimulateKeys(KS.KeyCode.CycleAdjustmentBrushOverlayKey,true),
       DecreaseRating                  = LrSelection.decreaseRating,
       DecrementLastDevelopParameter   = function() CU.execFOM(LrDevelopController.decrement,LastParam) end,
+      --DeletePhotos                    = CU.DeleteSelected,
       EditPhotoshop                   = LrDevelopController.editInPhotoshop,
       EnableCalibration               = CU.fToggleTFasync('EnableCalibration'),
       EnableColorAdjustments          = CU.fToggleTFasync('EnableColorAdjustments'),
@@ -167,6 +215,9 @@ LrTasks.startAsyncTask(
       EnableRetouch                   = CU.fToggleTFasync('EnableRetouch'),
       EnableToneCurve                 = CU.fToggleTFasync('EnableToneCurve'),
       EnableTransform                 = CU.fToggleTFasync('EnableTransform'),
+      FineActivate                    = function() toggleFinetuning(LastParamParam, true) end,
+      FineDeactivate                  = function() toggleFinetuning(LastParamParam, false) end,
+      FineToggle                      = function() toggleFinetuning(LastParamParam) end,
       FilterNone                      = CU.RemoveFilters,
       Filter_1                        = CU.fApplyFilter(1),
       Filter_10                       = CU.fApplyFilter(10),
@@ -407,12 +458,15 @@ LrTasks.startAsyncTask(
       LocalPreset8  = function() LocalPresets.ApplyLocalPreset(ProgramPreferences.LocalPresets[8]) end,
       LocalPreset9  = function() LocalPresets.ApplyLocalPreset(ProgramPreferences.LocalPresets[9]) end,
       Loupe          = CU.fToggleTool('loupe'),
-      Mask           = CU.fToggleTool('masking'),
+      Mask           = CU.fToggleTool1('masking'),
+      MaskAddBack    = CU.wrapFOM(LrDevelopController.addToCurrentMask,'aiSelection','background'),
       MaskAddBrush   = CU.wrapFOM(LrDevelopController.addToCurrentMask,'brush'),
       MaskAddColor   = CU.wrapFOM(LrDevelopController.addToCurrentMask,'rangeMask','color'),
       MaskAddDepth   = CU.wrapFOM(LrDevelopController.addToCurrentMask,'rangeMask','depth'),
       MaskAddGrad    = CU.wrapFOM(LrDevelopController.addToCurrentMask,'gradient'),
       MaskAddLum     = CU.wrapFOM(LrDevelopController.addToCurrentMask,'rangeMask','luminance'),
+      MaskAddObj     = CU.wrapFOM(LrDevelopController.addToCurrentMask,'aiSelection','objects'),
+      MaskAddPeople  = CU.wrapFOM(LrDevelopController.addToCurrentMask,'aiSelection','people'),
       MaskAddRad     = CU.wrapFOM(LrDevelopController.addToCurrentMask,'radialGradient'),
       MaskAddSky     = CU.wrapFOM(LrDevelopController.addToCurrentMask,'aiSelection','sky'),
       MaskAddSubject = CU.wrapFOM(LrDevelopController.addToCurrentMask,'aiSelection','subject'),
@@ -423,20 +477,26 @@ LrTasks.startAsyncTask(
       MaskHideTool   = Mask.ToggleHideMaskTool,
       MaskInvert     = Mask.InvertMask,
       MaskInvertDup  = Mask.InvertDuplicateMask,
+      MaskIntBack    = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'aiSelection','background'),
       MaskIntBrush   = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'brush'),
       MaskIntColor   = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'rangeMask','color'),
       MaskIntDepth   = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'rangeMask','depth'),
       MaskIntGrad    = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'gradient'),
       MaskIntLum     = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'rangeMask','luminance'),
+      MaskIntObj     = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'aiSelection','objects'),
+      MaskIntPeople  = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'aiSelection','people'),
       MaskIntRad     = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'radialGradient'),
       MaskIntSky     = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'aiSelection','sky'),
       MaskIntSubject = CU.wrapFOM(LrDevelopController.intersectWithCurrentMask,'aiSelection','subject'),
       MaskInvertTool = Mask.ToggleInvertMaskTool,
+      MaskNewBack    = CU.wrapFOM(LrDevelopController.createNewMask,'aiSelection','background'),
       MaskNewBrush   = CU.wrapFOM(LrDevelopController.createNewMask,'brush'),
       MaskNewColor   = CU.wrapFOM(LrDevelopController.createNewMask,'rangeMask','color'),
       MaskNewDepth   = CU.wrapFOM(LrDevelopController.createNewMask,'rangeMask','depth'),
       MaskNewGrad    = CU.wrapFOM(LrDevelopController.createNewMask,'gradient'),
       MaskNewLum     = CU.wrapFOM(LrDevelopController.createNewMask,'rangeMask','luminance'),
+      MaskNewObj     = CU.wrapFOM(LrDevelopController.createNewMask,'aiSelection','objects'),
+      MaskNewPeople  = CU.wrapFOM(LrDevelopController.createNewMask,'aiSelection','people'),
       MaskNewRad     = CU.wrapFOM(LrDevelopController.createNewMask,'radialGradient'),
       MaskNewSky     = CU.wrapFOM(LrDevelopController.createNewMask,'aiSelection','sky'),
       MaskNewSubject = CU.wrapFOM(LrDevelopController.createNewMask,'aiSelection','subject'),
@@ -445,15 +505,18 @@ LrTasks.startAsyncTask(
       MaskPrevious   = Mask.PreviousMask,
       MaskPreviousTool = Mask.PreviousTool,
       MaskReset      = CU.wrapFOM(LrDevelopController.resetMasking),
+      MaskSubBack    = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'aiSelection','background'),
       MaskSubBrush   = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'brush'),
       MaskSubColor   = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'rangeMask','color'),
       MaskSubDepth   = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'rangeMask','depth'),
       MaskSubGrad    = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'gradient'),
       MaskSubLum     = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'rangeMask','luminance'),
+      MaskSubObj     = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'aiSelection','objects'),
+      MaskSubPeople  = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'aiSelection','people'),
       MaskSubRad     = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'radialGradient'),
       MaskSubSky     = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'aiSelection','sky'),
       MaskSubSubject = CU.wrapFOM(LrDevelopController.subtractFromCurrentMask,'aiSelection','subject'),
-      Next                            = LrSelection.nextPhoto,
+      Next                            = CU.Next,
       NextScreenMode                  = LrApplicationView.nextScreenMode,
       PV1                             = CU.wrapFOM(LrDevelopController.setProcessVersion, 'Version 1'),
       PV2                             = CU.wrapFOM(LrDevelopController.setProcessVersion, 'Version 2'),
@@ -466,12 +529,62 @@ LrTasks.startAsyncTask(
       PointCurveLinear                = CU.UpdatePointCurve({ToneCurveName="Linear",ToneCurveName2012="Linear",ToneCurvePV2012={0,0,255,255,}}),
       PointCurveMediumContrast        = CU.UpdatePointCurve({ToneCurveName="Medium Contrast",ToneCurveName2012="Medium Contrast",ToneCurvePV2012={0,0,32,22,64,56,128,128,192,196,255,255,}}),
       PointCurveStrongContrast        = CU.UpdatePointCurve({ToneCurveName="Strong Contrast",ToneCurveName2012="Strong Contrast",ToneCurvePV2012={0,0,32,16,64,50,128,128,192,202,255,255,}}),
+      PointCurveBlacksUp              = CU.PointCurveUpDown(true, true),
+      PointCurveBlacksDown            = CU.PointCurveUpDown(true, false),
+      PointCurveHighlightsUp          = CU.PointCurveUpDown(false, true),
+      PointCurveHighlightsDown        = CU.PointCurveUpDown(false, false),
       PostCropVignetteStyle           = CU.fToggle1ModN('PostCropVignetteStyle', 3),
       PostCropVignetteStyleColorPriority     = CU.wrapFOM(LrDevelopController.setValue,'PostCropVignetteStyle',2),
       PostCropVignetteStyleHighlightPriority = CU.wrapFOM(LrDevelopController.setValue,'PostCropVignetteStyle',1),
       PostCropVignetteStylePaintOverlay      = CU.wrapFOM(LrDevelopController.setValue,'PostCropVignetteStyle',3),
-      PresetNext                      = Presets.NextPreset,
-      PresetPrevious                  = Presets.PreviousPreset,
+      PreGrp1n                        = Presets.AdvancePreset(1, true),
+      PreGrp1p                        = Presets.AdvancePreset(1, false),
+      PreGrp2n                        = Presets.AdvancePreset(2, true),
+      PreGrp2p                        = Presets.AdvancePreset(2, false),
+      PreGrp3n                        = Presets.AdvancePreset(3, true),
+      PreGrp3p                        = Presets.AdvancePreset(3, false),
+      PreGrp4n                        = Presets.AdvancePreset(4, true),
+      PreGrp4p                        = Presets.AdvancePreset(4, false),
+      PreGrp5n                        = Presets.AdvancePreset(5, true),
+      PreGrp5p                        = Presets.AdvancePreset(5, false),
+      PreGrp6n                        = Presets.AdvancePreset(6, true),
+      PreGrp6p                        = Presets.AdvancePreset(6, false),
+      PreGrp7n                        = Presets.AdvancePreset(7, true),
+      PreGrp7p                        = Presets.AdvancePreset(7, false),
+      PreGrp8n                        = Presets.AdvancePreset(8, true),
+      PreGrp8p                        = Presets.AdvancePreset(8, false),
+      PreGrp9n                        = Presets.AdvancePreset(9, true),
+      PreGrp9p                        = Presets.AdvancePreset(9, false),
+      PreGrp10n                       = Presets.AdvancePreset(10, true),
+      PreGrp10p                       = Presets.AdvancePreset(10, false),
+      PreGrp11n                       = Presets.AdvancePreset(11, true),
+      PreGrp11p                       = Presets.AdvancePreset(11, false),
+      PreGrp12n                       = Presets.AdvancePreset(12, true),
+      PreGrp12p                       = Presets.AdvancePreset(12, false),
+      PreGrp13n                       = Presets.AdvancePreset(13, true),
+      PreGrp13p                       = Presets.AdvancePreset(13, false),
+      PreGrp14n                       = Presets.AdvancePreset(14, true),
+      PreGrp14p                       = Presets.AdvancePreset(14, false),
+      PreGrp15n                       = Presets.AdvancePreset(15, true),
+      PreGrp15p                       = Presets.AdvancePreset(15, false),
+      PreGrp16n                       = Presets.AdvancePreset(16, true),
+      PreGrp16p                       = Presets.AdvancePreset(16, false),
+      PreGrpMulti1n                   = Presets.AdvancePreset(1, true, 'multi'),
+      PreGrpMulti1p                   = Presets.AdvancePreset(1, false, 'multi'),
+      PreGrpMulti2n                   = Presets.AdvancePreset(2, true, 'multi'),
+      PreGrpMulti2p                   = Presets.AdvancePreset(2, false, 'multi'),
+      PreGrpMulti3n                   = Presets.AdvancePreset(3, true, 'multi'),
+      PreGrpMulti3p                   = Presets.AdvancePreset(3, false, 'multi'),
+      PreGrpMulti4n                   = Presets.AdvancePreset(4, true, 'multi'),
+      PreGrpMulti4p                   = Presets.AdvancePreset(4, false, 'multi'),
+      PreGrpMulti5n                   = Presets.AdvancePreset(5, true, 'multi'),
+      PreGrpMulti5p                   = Presets.AdvancePreset(5, false, 'multi'),
+      PreGrpMulti6n                   = Presets.AdvancePreset(6, true, 'multi'),
+      PreGrpMulti6p                   = Presets.AdvancePreset(6, false, 'multi'),
+      PreGrpAlln                      = Presets.AdvancePreset(1, true, 'all'),
+      PreGrpAllp                      = Presets.AdvancePreset(1, false, 'all'),
+      PresetNext                      = Presets.AdvancePreset(0, true),
+      PresetPrevious                  = Presets.AdvancePreset(0, false),
       Preset_1                        = Presets.fApplyPreset(1),
       Preset_10                       = Presets.fApplyPreset(10),
       Preset_11                       = Presets.fApplyPreset(11),
@@ -552,7 +665,7 @@ LrTasks.startAsyncTask(
       Preset_8                        = Presets.fApplyPreset(8),
       Preset_80                       = Presets.fApplyPreset(80),
       Preset_9                        = Presets.fApplyPreset(9),
-      Prev                            = LrSelection.previousPhoto,
+      Prev                            = CU.Prev,
       QuickDevBlacksLarge             = CU.quickDevAdjust('Blacks',20,'QuickDevBlacksLarge'),
       QuickDevBlacksLargeDec          = CU.quickDevAdjust('Blacks',-20,'QuickDevBlacksLargeDec'),
       QuickDevBlacksSmall             = CU.quickDevAdjust('Blacks',5,'QuickDevBlacksSmall'),
@@ -639,8 +752,8 @@ LrTasks.startAsyncTask(
       RevealPanelTransform            = CU.fChangePanel('transformPanel'),
       RotateLeft                      = CU.wrapForEachPhoto('rotateLeft'),
       RotateRight                     = CU.wrapForEachPhoto('rotateRight'),
-      Select1Left                     = function() LrSelection.extendSelection('left',1) end,
-      Select1Right                    = function() LrSelection.extendSelection('right',1) end,
+      Select1Left                     = CU.Select1Left,
+      Select1Right                    = CU.Select1Right,
       SetRating0                      = function() LrSelection.setRating(0) end,
       SetRating1                      = function() LrSelection.setRating(1) end,
       SetRating2                      = function() LrSelection.setRating(2) end,
@@ -670,8 +783,8 @@ LrTasks.startAsyncTask(
       ShoVwpeople                     = function() LrApplicationView.showView('people') end,
       ShoVwsurvey                     = function() LrApplicationView.showView('survey') end,
       ShowClipping                    = CU.wrapFOM(LrDevelopController.showClipping),
-      SliderDecrease                  = CU.fSimulateKeys(KS.KeyCode.SliderDecreaseKey,true),
-      SliderIncrease                  = CU.fSimulateKeys(KS.KeyCode.SliderIncreaseKey,true),
+      SliderDecrease                  = CU.fSimulateKeys(KS.KeyCode.SliderDecreaseKey,false), -- developonly was true, but also works in library view for grid size
+      SliderIncrease                  = CU.fSimulateKeys(KS.KeyCode.SliderIncreaseKey,false), -- developonly was true, but also works in library view for grid size
       SpotRemoval                     = CU.fToggleTool1('dust'),
       SwToMbook                       = CU.fChangeModule('book'),
       SwToMdevelop                    = CU.fChangeModule('develop'),
@@ -681,7 +794,7 @@ LrTasks.startAsyncTask(
       SwToMslideshow                  = CU.fChangeModule('slideshow'),
       SwToMweb                        = CU.fChangeModule('web'),
       ToggleBlue                      = LrSelection.toggleBlueLabel,
-      ToggleFlag                      = function() MIDI2LR.SERVER:send('SendKey '..KS.KeyCode.ToggleFlagKey..'\n') end,
+      ToggleFlag                      = CU.fSimulateKeys(KS.KeyCode.ToggleFlagKey,false),
       ToggleGreen                     = LrSelection.toggleGreenLabel,
       ToggleLoupe                     = LrApplicationView.toggleLoupe,
       ToggleOverlay                   = LrDevelopController.toggleOverlay,
@@ -698,6 +811,7 @@ LrTasks.startAsyncTask(
       UprightOff                      = CU.wrapFOM(LrDevelopController.setValue,'PerspectiveUpright',0),
       UprightVertical                 = CU.wrapFOM(LrDevelopController.setValue,'PerspectiveUpright',4),
       VirtualCopy                     = function() LrApplication.activeCatalog():createVirtualCopies() end,
+      VirtualCopyMaster               = CU.VirtualCopyFromMaster,
       WhiteBalanceAs_Shot             = CU.wrapFOM(LrDevelopController.setValue,'WhiteBalance','As Shot'),
       WhiteBalanceAuto                = LrDevelopController.setAutoWhiteBalance,
       WhiteBalanceCloudy              = CU.wrapFOM(LrDevelopController.setValue,'WhiteBalance','Cloudy'),
@@ -760,6 +874,55 @@ LrTasks.startAsyncTask(
 
     local function notsupported() LrDialogs.showBezel(LOC('$$$/MIDI2LR/Dialog/NeedNewerLR=A newer version of Lightroom is required')) end
 
+    local LastSource              = 'void'
+    local LastSelectedPhotoQuick  = nil
+    local LastSelectedPhoto       = {}
+    local LastSelectedPhotos      = {}
+
+    local function RestoreLastSelection()
+      local LrCat = LrApplication.activeCatalog()
+      local ActivePhoto = LrCat:getTargetPhoto()
+      if ActivePhoto and ActivePhoto ~= LastSelectedPhotoQuick and ProgramPreferences.RememberSelection then
+        local ActivePhotos = LrCat:getTargetPhotos()
+        local ActiveSource = LrCat:getActiveSources()
+        if type(ActiveSource) == 'table' then
+          -- Currently this does not work correctly if multiple sources are selected. Could be done by concatinating the IDs of the whole array not only first element
+          if ActiveSource[1].localIdentifier ~= nil then
+            ActiveSource = tostring(ActiveSource[1].localIdentifier)
+          elseif ActiveSource[1]:getPath() ~= nil then
+            ActiveSource = ActiveSource[1]:getName()
+          else
+            ActiveSource = nil
+          end
+        elseif type(ActiveSource) ~= 'string' then
+          ActiveSource = nil
+        end
+        if ActiveSource then
+          if LastSource ~= ActiveSource then
+            LastSource = ActiveSource
+            if LastSelectedPhoto[LastSource] then
+              LrCat:setSelectedPhotos(LastSelectedPhoto[LastSource],LastSelectedPhotos[LastSource])
+            end
+          else
+            if ActivePhoto ~= LastSelectedPhoto[ActiveSource] or #ActivePhotos ~= #LastSelectedPhotos[ActiveSource] or ActivePhotos[1] ~= LastSelectedPhotos[ActiveSource][1] then
+              LastSelectedPhotoQuick = ActivePhoto
+              LastSelectedPhoto[ActiveSource] = ActivePhoto
+              LastSelectedPhotos[ActiveSource] = ActivePhotos
+            end
+          end
+        end
+      end
+    end
+
+    local function getOrientation()
+      local photo = LrApplication.activeCatalog():getTargetPhoto()
+      if photo then
+        return photo:getDevelopSettings()['orientation']
+      else
+        return nil
+      end
+    end
+
     local SETTINGS = {
       AppInfo            = function(value) Info.AppInfo[#Info.AppInfo+1] = value end,
       ChangedToDirectory = Profiles.setDirectory,
@@ -783,20 +946,34 @@ LrTasks.startAsyncTask(
       Will need to add code to AdjustmentChangeObserver and FullRefresh, and remember last fader
       position received by SetRating.
       --]]
+      --[[
       SetRating          = function(value)
-        local newrating = math.min(5,math.floor(tonumber(value)*6))
+        --local newrating = math.min(5,math.floor(tonumber(value)*6))
+        local newrating = CU.getSplitIndex(value, 6) - 1
         if newrating ~= LrSelection.getRating() then
           LrSelection.setRating(newrating)
         end
       end,
+      SetColorlabel            = function(value)
+        local newcolor = CU.VariableMoveTable['SetColorlabel'][CU.getSplitIndex(value, 6)]
+        if newcolor ~= LrSelection.getColorLabel() then
+          LrSelection.setColorLabel(newcolor)
+        end
+      end,
+      --]]
     }
-
+    -- For SetRating and SetColorlabel to be used with a slider; written as generic function to be used for further values if the need arises
+    -- Sets MIDI value to Lr
+    for _,param in ipairs(Database.VariableMove) do
+    --for param in pairs(Database.VariableMove) do
+      SETTINGS[param] = function(value, param) Profiles.SetVariableMove(value, param) end
+    end
 
     function UpdateParamPickup() --closure
       local paramlastmoved = {}
       local lastfullrefresh = 0
-      return function(param, midi_value, silent)
-        if LrApplication.activeCatalog():getTargetPhoto() == nil then return end--unable to update param
+      return function(param, midi_value, silent, paramorig)
+        if LrApplication.activeCatalog():getTargetPhoto() == nil then return end --unable to update param
         local value
         if LrApplicationView.getCurrentModuleName() ~= 'develop' then
           LrApplicationView.switchToModule('develop')
@@ -805,15 +982,21 @@ LrTasks.startAsyncTask(
         if Limits.Parameters[param] then
           Limits.ClampValue(param)
         end
-        if (math.abs(midi_value - CU.LRValueToMIDIValue(param)) <= PICKUP_THRESHOLD) or (paramlastmoved[param] ~= nil and paramlastmoved[param] + 0.5 > os.clock()) then -- pickup succeeded
+        local prefixtxt = nil
+        if FineActivated then prefixtxt = LOC("$$$/MIDI2LR/Finetune/Title=Fine-tuning")..' ' end
+        --midi_value is not 0..127, but 0..1
+        --IS PARAMORIG MISSING?????????????????????????????????????????????
+        if (math.abs(midi_value - CU.LRValueToMIDIValue(param, FineActivationValue, FineManual)) <= PICKUP_THRESHOLD) or
+          (paramlastmoved[param] ~= nil and paramlastmoved[param] + 0.5 > os.clock()) or
+          FineActivated then -- pickup succeeded
           paramlastmoved[param] = os.clock()
-          value = CU.MIDIValueToLRValue(param, midi_value)
+          value = CU.MIDIValueToLRValue(paramorig or param, midi_value, FineActivationValue, FineManual)
           if value ~= LrDevelopController.getValue(param) then
-            MIDI2LR.PARAM_OBSERVER[param] = value
+            MIDI2LR.PARAM_OBSERVER[paramorig or param] = value
             LrDevelopController.setValue(param, value)
             LastParam = param
             if ProgramPreferences.ClientShowBezelOnChange and not silent then
-              CU.showBezel(param,value)
+              CU.showBezel(paramorig or param, value, nil, prefixtxt)
             elseif type(silent) == 'string' then
               LrDialogs.showBezel(silent)
             end
@@ -823,9 +1006,9 @@ LrTasks.startAsyncTask(
           end
         else --failed pickup
           if ProgramPreferences.ClientShowBezelOnChange then -- failed pickup. do I display bezel?
-            value = CU.MIDIValueToLRValue(param, midi_value)
+            value = CU.MIDIValueToLRValue(paramorig or param, midi_value, FineActivationValue, FineManual) --Fine????????????
             local actualvalue = LrDevelopController.getValue(param)
-            CU.showBezel(param,value,actualvalue)
+            CU.showBezel(paramorig or param, value, actualvalue, prefixtxt)
           end
           if lastfullrefresh + 1 < os.clock() then --try refreshing controller once a second
             CU.FullRefresh()
@@ -836,7 +1019,7 @@ LrTasks.startAsyncTask(
     end
     UpdateParamPickup = UpdateParamPickup() --complete closure
     --called within LrRecursionGuard for setting
-    function UpdateParamNoPickup(param, midi_value, silent)
+    function UpdateParamNoPickup(param, midi_value, silent, paramorig)
       if LrApplication.activeCatalog():getTargetPhoto() == nil then return end--unable to update param
       local value
       if LrApplicationView.getCurrentModuleName() ~= 'develop' then
@@ -845,13 +1028,15 @@ LrTasks.startAsyncTask(
       end
       --Don't need to clamp limited parameters without pickup, as MIDI controls will still work
       --if value is outside limits range
-      value = CU.MIDIValueToLRValue(param, midi_value)
+      value = CU.MIDIValueToLRValue(paramorig or param, midi_value, FineActivationValue, FineManual)
       if value ~= LrDevelopController.getValue(param) then
-        MIDI2LR.PARAM_OBSERVER[param] = value
+        MIDI2LR.PARAM_OBSERVER[paramorig or param] = value
         LrDevelopController.setValue(param, value)
         LastParam = param
+        local prefixtxt = nil
+        if FineActivated then prefixtxt = LOC("$$$/MIDI2LR/Finetune/Title=Fine-tuning")..' ' end
         if ProgramPreferences.ClientShowBezelOnChange and not silent then
-          CU.showBezel(param,value)
+          CU.showBezel(paramorig or param, value, nil, prefixtxt)
         elseif type(silent) == 'string' then
           LrDialogs.showBezel(silent)
         end
@@ -874,22 +1059,32 @@ LrTasks.startAsyncTask(
         local CurrentObserver
         --call following within guard for reading
         local function AdjustmentChangeObserver()
+        -- !!!!!!!!!!!!!!!!!!! Similar code exists in Profile.doprofilechange  and ClientUtilities.FullRefresh and has to be changed accordingly !!!!!!!!!!!!!!!!!!!
           local lastrefresh = 0 --will be set to os.clock + increment to rate limit
           return function(observer) -- closure
             if not sendIsConnected then return end -- can't send
             if Limits.LimitsCanBeSet() and lastrefresh < os.clock() then
-              -- refresh crop values NOTE: this function is repeated in ClientUtilities and Profiles
-              local val_bottom = LrDevelopController.getValue("CropBottom")
+              --local val_bottom = LrDevelopController.getValue("CropBottom")
+              --local val_bottom = Profiles.CropSideRev(LrDevelopController.getValue(Profiles.CropSideOriented('CropBottom', orientation)), orientation)
+              local _, params = Profiles.CropSideOriented('CropTop', orientation)
+              local param_top, param_left, param_bottom, param_right = params[1], params[2], params[3], params[4]
+              local val_bottom = Profiles.CropSideRev(LrDevelopController.getValue(param_bottom), param_bottom, orientation)
               MIDI2LR.SERVER:send(string.format('CropBottomRight %g\n', val_bottom))
               MIDI2LR.SERVER:send(string.format('CropBottomLeft %g\n', val_bottom))
               MIDI2LR.SERVER:send(string.format('CropAll %g\n', val_bottom))
               MIDI2LR.SERVER:send(string.format('CropBottom %g\n', val_bottom))
-              local val_top = LrDevelopController.getValue("CropTop")
+              --local val_top = LrDevelopController.getValue("CropTop")
+              --local val_top = Profiles.CropSideRev(LrDevelopController.getValue(Profiles.CropSideOriented('CropTop', orientation)), orientation)
+              local val_top = Profiles.CropSideRev(LrDevelopController.getValue(param_top), param_top, orientation)
               MIDI2LR.SERVER:send(string.format('CropTopRight %g\n', val_top))
               MIDI2LR.SERVER:send(string.format('CropTopLeft %g\n', val_top))
               MIDI2LR.SERVER:send(string.format('CropTop %g\n', val_top))
-              local val_left = LrDevelopController.getValue("CropLeft")
-              local val_right = LrDevelopController.getValue("CropRight")
+              --local val_left = LrDevelopController.getValue("CropLeft")
+              --local val_right = LrDevelopController.getValue("CropRight")
+              --local val_left = Profiles.CropSideRev(LrDevelopController.getValue(Profiles.CropSideOriented('CropLeft', orientation)), orientation)
+              --local val_right = Profiles.CropSideRev(LrDevelopController.getValue(Profiles.CropSideOriented('CropRight', orientation)), orientation)
+              local val_left = Profiles.CropSideRev(LrDevelopController.getValue(param_left), param_left, orientation)
+              local val_right = Profiles.CropSideRev(LrDevelopController.getValue(param_right), param_right, orientation)
               MIDI2LR.SERVER:send(string.format('CropLeft %g\n', val_left))
               MIDI2LR.SERVER:send(string.format('CropRight %g\n', val_right))
               local range_v = (1 - (val_bottom - val_top))
@@ -905,11 +1100,17 @@ LrTasks.startAsyncTask(
                 MIDI2LR.SERVER:send(string.format('CropMoveHorizontal %g\n', val_left / range_h))
               end
               for param in pairs(Database.Parameters) do
-                local lrvalue = LrDevelopController.getValue(param)
-                if observer[param] ~= lrvalue and type(lrvalue) == 'number' then --testing for MIDI2LR.SERVER.send kills responsiveness
-                  MIDI2LR.SERVER:send(string.format('%s %g\n', param, CU.LRValueToMIDIValue(param)))
-                  observer[param] = lrvalue
-                  LastParam = param
+                if param:sub(1,4) ~= 'Crop' then
+                  local lrvalue = LrDevelopController.getValue(param)
+                  if type(observer[param]) == 'number' then observer[param] = math.floor(observer[param] * 100 + 0.5)/100 end
+                  --if observer[param] ~= lrvalue and type(lrvalue) == 'number' then --testing for MIDI2LR.SERVER.send kills responsiveness
+                  --if type(lrvalue) == 'number' and ( type(observer[param]) ~= 'number' or math.abs(observer[param] - lrvalue) >= 0.015 ) then --testing for MIDI2LR.SERVER.send kills responsiveness
+                  --if type(lrvalue) == 'number' and ( type(observer[param]) ~= 'number' or math.abs(observer[param] - lrvalue) >= PICKUP_THRESHOLD ) then --testing for MIDI2LR.SERVER.send kills responsiveness
+                  if type(lrvalue) == 'number' and ( type(observer[param]) ~= 'number' or math.abs(observer[param] - lrvalue) >= PICKUP_THRESHOLD ) and param:sub(1,4)~='Crop' then --testing for MIDI2LR.SERVER.send kills responsiveness
+                    MIDI2LR.SERVER:send(string.format('%s %g\n', param, CU.LRValueToMIDIValue(param, FineActivationValue, FineManual)))
+                    observer[param] = lrvalue
+                    LastParam = param
+                  end
                 end
               end
               lastrefresh = os.clock() + 0.1 --1/10 sec between refreshes
@@ -948,8 +1149,58 @@ LrTasks.startAsyncTask(
               local split = message:find(' ',1,true)
               local param = message:sub(1,split-1)
               local value = message:sub(split+1)
+
               if Database.Parameters[param] then
-                UpdateParam(param,tonumber(value),false)
+                --local val = tonumber(value)
+                value = tonumber(value)
+                if FineActivated and (LastParamParam ~= param or (FineActivated + ProgramPreferences.FineDeactivate < os.clock() and ProgramPreferences.FineDeactivate ~= 0)) then
+                --if LastParamParam ~= param or (FineActivated and (FineActivated + ProgramPreferences.FineDeactivate) < os.clock() and ProgramPreferences.FineDeactivate ~= 0) then
+                  FineActivated = nil
+                  CU.setController(LastParamParam, CU.LRValueToMIDIValue(LastParamParam))
+                  FineAdjustments = {}
+                  FineActivationValue = nil
+                  FineLastValue = 0
+                  FineTotal = 0
+                end
+                if ProgramPreferences.FineEnabled then
+                  if FineActivated then
+                    FineActivated = os.clock()
+                    --LrDialogs.showBezel(string.format('value=%.3f, FAct=%s, FActVal=%.3f', value, FineActivated, FineActivationValue))
+                  else
+                    if #FineAdjustments > 0 and (os.clock() - FineAdjustments[#FineAdjustments].time) > FineMinTryPeriod then
+                      -- Makes sure to start over with dedecting fine-tuning, if it was not activated and there were no further input longer than FineMinTryPeriod
+                      FineAdjustments = {}
+                      FineTotal = 0
+                    else
+                      local finechange = math.abs(FineLastValue - value)
+                      FineTotal = FineTotal + finechange
+                      if #FineAdjustments == FineAdjustAverage then
+                        FineTotal = FineTotal - FineAdjustments[1].change
+                        table.remove(FineAdjustments, 1)
+                      end
+                      FineAdjustments[#FineAdjustments+1] = { time = os.clock(), change = finechange }
+                      local elapsedtime = FineAdjustments[#FineAdjustments].time - FineAdjustments[1].time
+                      --LrDialogs.showBezel(string.format('elapsed=%f, FineTot=%.3f, #FAdj=%d, fchge=%.3f, FAct=%s', elapsedtime, FineTotal, #FineAdjustments, finechange, FineActivated))
+                      if (FineTotal / elapsedtime < (ProgramPreferences.FineAutoSensitivity / 150)) and elapsedtime > FineMinTryPeriod and FineTotal >= FineMinChange then
+                        --Activate Fine-tuning; FineAutoSensitivity is divided by a factor (experience) just to have nice values in the options dialog
+                        FineActivated = os.clock()
+                        FineActivationValue = value
+                        FineManual = false
+                      end
+                    end
+                  end
+                  FineLastValue = value -- needs to be outside to have a starting value
+                end
+                LastParamParam = param
+                if param:sub(1,4) == 'Crop'  then
+                  local paramorig = param
+                  param = Profiles.CropSideOriented(param, orientation)
+                  --UpdateParam(param, Profiles.CropSideRev(val, param, orientation), false, paramorig)
+                  UpdateParam(param, Profiles.CropSideRev(value, param, orientation), false, paramorig)
+                else
+                  --UpdateParam(param, val, false)
+                  UpdateParam(param, value, false)
+                end
                 local gradeFocus = GradeFocusTable[param]
                 if gradeFocus then
                   local currentView = LrDevelopController.getActiveColorGradingView()
@@ -959,19 +1210,22 @@ LrTasks.startAsyncTask(
                     end
                   end
                 end
+                value = valtemp
               elseif ACTIONS[param] then -- perform a one time action
                 if tonumber(value) > BUTTON_ON then
                   ACTIONS[param]()
                 end
               elseif SETTINGS[param] then -- do something requiring the transmitted value to be known
-                SETTINGS[param](value)
+                SETTINGS[param](value, param)
               elseif Virtual[param] then -- handle a virtual command
                 local lp = Virtual[param](value, UpdateParam)
                 if lp then
                   LastParam = lp
                 end
               elseif param:sub(1,4) == 'Crop'  then
-                CU.RatioCrop(param,value,UpdateParam)
+                local val = tonumber(value)
+                param = Profiles.CropSideOriented(param, orientation)
+                CU.RatioCrop(param, Profiles.CropSideRev(value, param, orientation), UpdateParam)
               elseif param:sub(1,5) == 'Reset' then -- perform a reset other than those explicitly coded in ACTIONS array
                 if tonumber(value) > BUTTON_ON then
                   local resetparam = param:sub(6)
@@ -993,6 +1247,7 @@ LrTasks.startAsyncTask(
                   end
                 end
               end
+              Presets.SetLastAction(param)
             end
           end,
           onClosed = function( socket )
@@ -1024,6 +1279,9 @@ LrTasks.startAsyncTask(
         while  MIDI2LR.RUNNING and ((LrApplicationView.getCurrentModuleName() ~= 'develop') or (LrApplication.activeCatalog():getTargetPhoto() == nil)) do
           LrTasks.sleep ( .29 )
           Profiles.checkProfile()
+          Profiles.UpdateVariableMove()
+          RestoreLastSelection()
+          orientation = getOrientation()
         end --sleep away until ended or until develop module activated
         LrTasks.sleep ( .2 ) --avoid "attempt to index field 'libraryImage' (a nil value) on fast machines: LR bug
         if MIDI2LR.RUNNING then --didn't drop out of loop because of program termination
@@ -1043,6 +1301,17 @@ LrTasks.startAsyncTask(
           while MIDI2LR.RUNNING do --detect halt or reload
             LrTasks.sleep( .29 )
             Profiles.checkProfile()
+            Profiles.UpdateVariableMove()
+            RestoreLastSelection()
+            orientation = getOrientation()
+            if FineActivated and (FineActivated + ProgramPreferences.FineDeactivate) < os.clock() and ProgramPreferences.FineDeactivate ~= 0 then
+              FineActivated = nil
+              CU.setController(LastParamParam, CU.LRValueToMIDIValue(LastParamParam))
+              FineAdjustments = {}
+              FineActivationValue = nil
+              FineLastValue = 0
+              FineTotal = 0
+            end
           end
         end
       end
