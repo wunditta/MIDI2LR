@@ -30,12 +30,142 @@ local LrFileUtils         = import 'LrFileUtils'
 local LrStringUtils       = import 'LrStringUtils'
 local LrTasks             = import 'LrTasks'
 local LrView              = import 'LrView'
+local LrSelection         = import 'LrSelection'
 
 local currentTMP = {Tool = '', Module = '', Panel = '', Profile = ''}
 local loadedprofile = ''-- according to application and us
 local profilepath = '' --according to application
 
+local function CropSideOriented(side_unoriented, orientation)
+  --local cropside = {CropTop = "CropTop", CropLeft = "CropLeft", CropBottom = "CropBottom", CropRight = "CropRight", vert = "CropMoveVertical", hor = "CropMoveHorizontal"}
+  local cropside = { "CropTop", "CropLeft", "CropBottom", "CropRight", "CropTopLeft", "CropBottomLeft", "CropBottomRight", "CropTopRight", "CropMoveVertical", "CropMoveHorizontal" }
+  if orientation == 'AB' or orientation == nil then return side_unoriented, cropside end
+  local rotations = { BC = 1, CD = 2, DA = 3 }
+  local itemnum = 0
+  for i,item in ipairs(cropside) do
+    if item == side_unoriented then itemnum = i end
+  end
+  local rot = rotations[orientation]
+  if itemnum == 0 or rot == nil then return side_unoriented, cropside end
+  for _=1,rot do
+    table.insert( cropside, 5, cropside[1] )
+    table.remove( cropside, 1 )
+    table.insert( cropside, 9, cropside[5] )
+    table.remove( cropside, 5 )
+    --cropside['temp'] = cropside['CropTop']
+    --cropside['CropTop'] = cropside['CropLeft']
+    --cropside['CropLeft'] = cropside['CropBottom']
+    --cropside['CropBottom'] = cropside['CropRight']
+    --cropside['CropRight'] = cropside['temp']
+  end
+  if orientation == 'BC' or orientation == 'DA' then
+    --cropside['temp'] = cropside['vert']
+    --cropside['vert'] = cropside['hor']
+    --cropside['hor'] = cropside['temp']
+    table.insert( cropside, 11, cropside[9] )
+    table.remove( cropside, 9 )
+  end
+  --return cropside[side_unoriented]
+  return cropside[itemnum], cropside
+end
+
+local function CropSideRev(value, side_oriented, orientation)
+  if (side_oriented=='CropLeft' or side_oriented=='CropRight') and (orientation == 'CD' or orientation == 'BC') then value = 1 - value end
+  if (side_oriented=='CropTop' or side_oriented=='CropBottom') and (orientation == 'AB'or orientation == 'BC') then value = 1 - value end
+  return value
+end
+
+--Some of these functions are also needed in Client and ClientUtilities (Profiles is already imported to both)
+local function getSplitIndex(val0to1, numsubdiv)
+  -- A value 0..1 (val0to1) is converted to an index (the n-th subdivision; starting with 1) depending of the total number of subdivisions (numsubdiv)
+  return math.min(numsubdiv, math.floor((tonumber(val0to1)*numsubdiv) + 1))
+end
+
+local function getSplitValue0to1(index, numsubdiv)
+  -- An index (1 to numsubdiv) is converted to a floating value 0..1, whereas the value is in the center of the specified subdivision range
+  if index == nil then return nil end
+  return math.floor(((index - 0.5) / numsubdiv * 100) + 0.5) / 100
+end
+
+local function ReverseTables(tables)
+  -- Prepares two tables out of a simple array (e.g. SetColorlabel) for VariableMove parameters (see below), i.e. where a slider can be used to choose one of the options
+  -- origtab is an array with two elements: [1] just an indexed table of the array, [2] the number of elements
+  -- revtab is an array with two elements: [1] the reversed table above, i.e. key and value exchanged (e.g. red = 2), [2] the number of elements
+  local origtab = {}
+  local revtab = {}
+  local total = 0
+  for t1name,t1 in pairs(tables) do -- or ipairs?
+    t1 = t1.values
+    origtab[t1name] = { [1] = t1 }
+    revtab[t1name] = { [1] = {} }
+    total = 0
+    for idx,t2 in pairs(t1) do -- or ipairs?
+      revtab[t1name][1][t2]=idx
+      total = total + 1
+    end
+    origtab[t1name][2] = total
+    revtab[t1name][2] = total
+  end
+  return revtab, origtab
+end
+
+local VariableMoveDB = {
+  SetColorlabel   = { values = { 'none', 'red', 'yellow', 'green', 'blue', 'purple' },
+                      getvalf = function() return LrSelection.getColorLabel() end,
+                      setvalf = function(value) LrSelection.setColorLabel(value) end,
+                      bezel = LOC("$$$/AgDevelop/Toolbar/Tooltip/SetColorLabel=Set Color Label"),
+                    },
+  SetRating       = { values = { 0, 1, 2, 3, 4, 5 },
+                      getvalf = function() return LrSelection.getRating() end,
+                      setvalf = function(value) LrSelection.setRating(value) end,
+                      bezel = '', -- Lr shows the new setting for this; was: LOC("$$$/AgDevelop/Toolbar/Tooltip/SetRating=Set Rating")
+                    },
+  SetFlag         = { values = { -1, 0, 1 },
+                      getvalf = function() return LrSelection.getFlag() end,
+                      setvalf = function(value)
+                                  if value==-1 then LrSelection.flagAsReject()
+                                  elseif value==0 then LrSelection.removeFlag()
+                                  elseif value==1 then LrSelection.flagAsPick()
+                                  end
+                                end,
+                      bezel = '', -- Lr shows the new setting for this; was: LOC("$$$/AgDevelop/Toolbar/Tooltip/SetRating=Set Rating")
+                    },
+}
+local VariableMoveTableRev, VariableMoveTable = ReverseTables(VariableMoveDB)
+local VariableMoveLastValue = {}
+
+local function UpdateVariableMove(force)
+-- Updates MIDI when a VariableMove setting changed
+-- The commands must be defined in Database.lua as type "variablemove", in addition to the table "VariableMoveDB" above
+  local currentvalue
+  for _,param in ipairs(Database.VariableMove) do
+  --for param in pairs(Database.VariableMove) do
+    currentvalue = VariableMoveDB[param].getvalf()
+    if (VariableMoveLastValue[param] ~= currentvalue or force) and currentvalue ~= nil then
+      MIDI2LR.SERVER:send(string.format('%s %g\n', param, getSplitValue0to1(VariableMoveTableRev[param][1][currentvalue], VariableMoveTableRev[param][2])))
+      VariableMoveLastValue[param] = currentvalue
+    end
+  end
+end
+
+local function SetVariableMove(value, param)
+-- Updates Lr when a MIDI value changes
+  local newvalue = VariableMoveTable[param][1][getSplitIndex(value, VariableMoveTable[param][2])]
+  if newvalue ~= VariableMoveDB[param]['getvalf']() then
+    VariableMoveDB[param].setvalf(newvalue)
+    VariableMoveLastValue[param] = newvalue
+    if ProgramPreferences.ClientShowBezelOnChange and VariableMoveDB[param].bezel ~= '' then
+      LrTasks.startAsyncTask( function()
+        LrDialogs.showBezel(VariableMoveDB[param].bezel..': '..tostring(newvalue):gsub("^%l", string.upper))
+      end )
+    end
+  end
+end
+
+
 local function doprofilechange(newprofile)
+-- Sets all controllers on device to correct settings after a new profile was loaded to the application
+-- !!!!!!!!!!!!!!!!!!! Similar code exists in Client.AdjustmentChangeObserver  and ClientUtilities.FullRefresh and has to be changed accordingly !!!!!!!!!!!!!!!!!!!
   if ProgramPreferences.ProfilesShowBezelOnChange then
     local filename = newprofile:match(".-([^\\^/]-([^%.]+))$")
     filename = filename:sub(0, -5)
@@ -51,17 +181,28 @@ local function doprofilechange(newprofile)
     --]]-----------end debug section
         local photoval = LrApplication.activeCatalog():getTargetPhoto():getDevelopSettings()
         -- refresh crop values
-        local val_bottom = photoval.CropBottom
+        --local val_bottom = photoval.CropBottom
+        --local val_bottom = CropSideRev(photoval[CropSideOriented('CropBottom', photoval.orientation)], photoval.orientation)
+        --local param_top, param_left, param_bottom, param_right = table.unpack(select(2, CropSideOriented('CropTop', photoval.orientation)))
+        local _, params = CropSideOriented('CropTop', photoval.orientation)
+        local param_top, param_left, param_bottom, param_right = params[1], params[2], params[3], params[4]
+        local val_bottom = CropSideRev(photoval[param_bottom], param_bottom, photoval.orientation)
         MIDI2LR.SERVER:send(string.format('CropBottomRight %g\n', val_bottom))
         MIDI2LR.SERVER:send(string.format('CropBottomLeft %g\n', val_bottom))
         MIDI2LR.SERVER:send(string.format('CropAll %g\n', val_bottom))
         MIDI2LR.SERVER:send(string.format('CropBottom %g\n', val_bottom))
-        local val_top = photoval.CropTop
+        --local val_top = photoval.CropTop
+        --local val_top = CropSideRev(photoval[CropSideOriented('CropTop', photoval.orientation)], photoval.orientation)
+        local val_top = CropSideRev(photoval[param_top], param_top, photoval.orientation)
         MIDI2LR.SERVER:send(string.format('CropTopRight %g\n', val_top))
         MIDI2LR.SERVER:send(string.format('CropTopLeft %g\n', val_top))
         MIDI2LR.SERVER:send(string.format('CropTop %g\n', val_top))
-        local val_left = photoval.CropLeft
-        local val_right = photoval.CropRight
+        --local val_left = photoval.CropLeft
+        --local val_right = photoval.CropRight
+        --local val_left = CropSideRev(photoval[CropSideOriented('CropLeft', photoval.orientation)], photoval.orientation)
+        --local val_right = CropSideRev(photoval[CropSideOriented('CropRight', photoval.orientation)], photoval.orientation)
+        local val_left = CropSideRev(photoval[param_left], param_left, photoval.orientation)
+        local val_right = CropSideRev(photoval[param_right], param_right, photoval.orientation)
         MIDI2LR.SERVER:send(string.format('CropLeft %g\n', val_left))
         MIDI2LR.SERVER:send(string.format('CropRight %g\n', val_right))
         local range_v = (1 - (val_bottom - val_top))
@@ -77,31 +218,36 @@ local function doprofilechange(newprofile)
           MIDI2LR.SERVER:send(string.format('CropMoveHorizontal %g\n', val_left / range_h))
         end
         for param,altparam in pairs(Database.Parameters) do
-          local min,max = Limits.GetMinMax(param) --can't include ClientUtilities: circular reference
-          local lrvalue
-          if altparam == 'Direct' then
-            lrvalue = LrDevelopController.getValue(param)
-          else
-            if param == altparam then
-              lrvalue = (photoval[param] or 0)
+          if param:sub(1,4) ~= 'Crop' then
+            local min,max = Limits.GetMinMax(param) --can't include ClientUtilities: circular reference
+            local lrvalue
+            if altparam == 'Direct' then
+              if LrDevelopController.getSelectedMask() then lrvalue = LrDevelopController.getValue(param) end
             else
-              lrvalue = (photoval[param] or 0) + (photoval[altparam] or 0)
+              if param == altparam then
+                lrvalue = (photoval[param] or 0)
+              else
+                lrvalue = (photoval[param] or 0) + (photoval[altparam] or 0)
+              end
             end
-          end
-          if type(min) == 'number' and type(max) == 'number' and type(lrvalue) == 'number' then
-            local midivalue = (lrvalue-min)/(max-min)
-            if midivalue >= 1.0 then
-              MIDI2LR.SERVER:send(string.format('%s 1.0\n', param))
-            elseif midivalue <= 0.0 then -- = catches -0.0 and sends it as 0.0
-              MIDI2LR.SERVER:send(string.format('%s 0.0\n', param))
-            else
-              MIDI2LR.SERVER:send(string.format('%s %g\n', param, midivalue))
+            if type(min) == 'number' and type(max) == 'number' and type(lrvalue) == 'number' then
+              local midivalue = (lrvalue-min)/(max-min)
+              if midivalue >= 1.0 then
+                MIDI2LR.SERVER:send(string.format('%s 1.0\n', param))
+              elseif midivalue <= 0.0 then -- = catches -0.0 and sends it as 0.0
+                MIDI2LR.SERVER:send(string.format('%s 0.0\n', param))
+              else
+                MIDI2LR.SERVER:send(string.format('%s %g\n', param, midivalue))
+              end
             end
           end
         end
       end
     )
   end
+  LrTasks.startAsyncTask ( function ()
+    UpdateVariableMove(true)
+  end )
 end
 
 local function setDirectory(value)
@@ -131,6 +277,7 @@ local function changeProfile(profilename, ignoreCurrent)
     ((ignoreCurrent == true) or (currentTMP[TMP] ~= profilename)) then
       MIDI2LR.SERVER:send('SwitchProfile '..newprofile_file..'\n')
       doprofilechange(newprofile_file)
+      changed = true
     end
     currentTMP[TMP] = profilename
   end
@@ -533,4 +680,8 @@ return {
   setDirectory = setDirectory,
   setFile = setFile,
   setFullPath = setFullPath,
+  CropSideOriented = CropSideOriented,
+  CropSideRev = CropSideRev,
+  UpdateVariableMove = UpdateVariableMove,
+  SetVariableMove = SetVariableMove,
 }
