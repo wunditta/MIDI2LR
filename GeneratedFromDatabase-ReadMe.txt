@@ -1,0 +1,1 @@
+Running Build.lua generates files for the wiki: Commands.md. This file needs to replace the current file in the wiki.
