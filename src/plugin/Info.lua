@@ -37,6 +37,10 @@ return {
       file = 'PresetsDialog.lua',
     },
     {
+      title = LOC("$$$/MIDI2LR/PresetGroups/PresetGroups=Develop Preset Groups"),
+      file = 'PresetGroupsDialog.lua',
+    },
+    {
       title = LOC("$$$/AgLibrary/Filter/BrowserCriteria/Keywords=Keywords"),
       file = 'KeywordsDialog.lua',
     },
@@ -95,5 +99,5 @@ return {
       file = "LogSave.lua",
     },
   },
-  VERSION = { major=5, minor=4, revision=0, build=0}
+  VERSION = { major=5, minor=5, revision=0, build=0}
 }
