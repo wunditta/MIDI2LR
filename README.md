@@ -1,6 +1,11 @@
 ﻿# MIDI2LR
 
-[![Latest release](https://img.shields.io/github/release/rsjaffe/MIDI2LR.svg)](https://github.com/rsjaffe/MIDI2LR/releases/latest) [![MIDI2LR All Releases](https://img.shields.io/github/downloads/rsjaffe/MIDI2LR/total.svg)](https://github.com/rsjaffe/MIDI2LR/releases) [![license](https://img.shields.io/github/license/rsjaffe/MIDI2LR.svg)](https://github.com/rsjaffe/MIDI2LR/blob/master/LICENSE.txt)
+[![Latest release](https://img.shields.io/github/release/wunditta/MIDI2LR.svg)](https://github.com/wunditta/MIDI2LR/releases/latest) [![MIDI2LR All Releases](https://img.shields.io/github/downloads/wunditta/MIDI2LR/total.svg)](https://github.com/wunditta/MIDI2LR/releases) [![license](https://img.shields.io/github/license/rsjaffe/MIDI2LR.svg)](https://github.com/rsjaffe/MIDI2LR/blob/master/LICENSE.txt)
+
+----
+**NOTE: THIS IS A FORK OF [rsjaffe/MIDI2LR PLUGIN](https://github.com/rsjaffe/MIDI2LR). FULL CREDIT GOES TO HER/HIM. I ONLY DID SOME CHANGES DOCUMENTED IN THE [WIKI](https://github.com/wunditta/MIDI2LR/wiki) HERE. You can [DOWNLOAD](https://github.com/wunditta/MIDI2LR/releases/tag/v5.5.0.0) a pre-release.**
+
+----
 
 **MIDI2LR** is an application that interfaces MIDI controllers with Lightroom Classic. **Version 4 requires Lightroom 10 Classic, version 5 Lightroom 11 Classic: use version 3 for earlier versions of Lightroom**.
 
