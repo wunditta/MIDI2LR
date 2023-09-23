@@ -25,8 +25,15 @@ You should have received a copy of the GNU General Public License along with
 MIDI2LR.  If not, see <http://www.gnu.org/licenses/>. 
 ------------------------------------------------------------------------------]]
 
-local Database = require 'Database'
-local ProfileTypes        = require 'ProfileTypes'
+local Database         = require 'Database'
+local ProfileTypes     = require 'ProfileTypes'
+local CopySetg         = require 'CopySettings'
+
+local OptionLimits     = {
+  FineMagnify = 6.25,
+  FineAutoSensitivity = 5,
+  FineDeactivate = 3,
+}
 
 --ActionSeries.lua
 local function UseDefaultsActionSeries()
@@ -116,6 +123,31 @@ local function LoadedPresets()
     UseDefaultsPresets()
   end
 end
+local function UseDefaultsPresetGroups()
+  ProgramPreferences.PresetGroups = {}
+  ProgramPreferences.PresetGroupsMulti = {}
+end
+local function LoadedPresetGroups()
+  if type(ProgramPreferences.PresetGroups) ~= 'table' then
+    UseDefaultsPresetGroups()
+  end
+  if type(ProgramPreferences.PresetGroupsMulti) ~= 'table' then
+    UseDefaultsPresetGroups()
+  end
+end
+
+--CopySettings.lua
+local function UseDefaultsCopySettings()
+  ProgramPreferences.CopySettings = {}
+  for i=1, CopySetg.number_of_presets do
+    ProgramPreferences.CopySettings[i] = {[36] = true}
+  end
+end
+local function LoadedCopySettings()
+  if type(ProgramPreferences.CopySettings) ~= 'table' then
+    UseDefaultsCopySettings()
+  end
+end
 
 --Profiles.lua
 local function UseDefaultsProfiles()
@@ -127,6 +159,10 @@ end
 local function LoadedProfiles()
   if type(ProgramPreferences.Profiles) ~= 'table' then
     UseDefaultsProfiles()
+  end
+  -- Develop and loupe profiles should match, as loupe is develop default tool.
+  if ProgramPreferences.Profiles['develop'] ~= '' and ProgramPreferences.Profiles['loupe'] == '' then
+    ProgramPreferences.Profiles['loupe'] = ProgramPreferences.Profiles['develop']
   end
 end
 
@@ -143,22 +179,37 @@ local function LoadedKeys()
   end
 end
 
-local function LoadedShowActions()
-  if ProgramPreferences.RevealAdjustedControls == nil then
+local function LoadedShowActions(reset)
+  -- if reset load default values individually for each parameter
+  if ProgramPreferences.RevealAdjustedControls == nil or reset then
     ProgramPreferences.RevealAdjustedControls = true
   end
-  if ProgramPreferences.ProfilesShowBezelOnChange == nil then
+  if ProgramPreferences.ProfilesShowBezelOnChange == nil or reset then
     ProgramPreferences.ProfilesShowBezelOnChange = true
   end
-  if ProgramPreferences.ClientShowBezelOnChange == nil then
+  if ProgramPreferences.ClientShowBezelOnChange == nil or reset then
     ProgramPreferences.ClientShowBezelOnChange = true
   end
-end
-
-local function UseDefaultsShowActions()
-  ProgramPreferences.RevealAdjustedControls = true
-  ProgramPreferences.ProfilesShowBezelOnChange = true
-  ProgramPreferences.ClientShowBezelOnChange = true
+  if ProgramPreferences.RememberSelection == nil or reset then
+    ProgramPreferences.RememberSelection = true
+  end
+  --[[
+  if ProgramPreferences.DeleteAnyhow == nil then
+    ProgramPreferences.DeleteAnyhow = false
+  end
+  --]]
+  if ProgramPreferences.FineEnabled == nil or reset then
+    ProgramPreferences.FineEnabled = false
+  end
+  if ProgramPreferences.FineMagnify == nil or reset then
+    ProgramPreferences.FineMagnify = OptionLimits.FineMagnify
+  end
+  if ProgramPreferences.FineAutoSensitivity == nil or reset then
+    ProgramPreferences.FineAutoSensitivity = OptionLimits.FineAutoSensitivity
+  end
+  if ProgramPreferences.FineDeactivate == nil or reset then
+    ProgramPreferences.FineDeactivate = OptionLimits.FineDeactivate
+  end
 end
 
 local function LoadedAll()
@@ -170,6 +221,8 @@ local function LoadedAll()
   LoadedLocalPresets()
   LoadedPaste()
   LoadedPresets()
+  LoadedPresetGroups()
+  LoadedCopySettings()
   LoadedProfiles()
   LoadedShowActions()
 end
@@ -183,8 +236,10 @@ local function UseDefaultsAll()
   UseDefaultsLocalPresets()
   UseDefaultsPaste()
   UseDefaultsPresets()
+  UseDefaultsPresetGroups()
+  UseDefaultsCopySettings()
   UseDefaultsProfiles()
-  UseDefaultsShowActions()
+  LoadedShowActions(true)
 end
 
 return {
@@ -207,7 +262,7 @@ return {
   UseDefaultsPaste    = UseDefaultsPaste,
   UseDefaultsPresets  = UseDefaultsPresets,
   UseDefaultsProfiles = UseDefaultsProfiles,
-  UseDefaultsShowActions = UseDefaultsShowActions,
   LoadedAll           = LoadedAll,
   UseDefaultsAll      = UseDefaultsAll,
+  OptionLimits        = OptionLimits,
 }
