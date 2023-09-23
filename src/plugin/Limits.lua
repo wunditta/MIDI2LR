@@ -176,7 +176,11 @@ local function StartDialog(obstable,f)
       obstable['Limits'..p..'Low'] = min
       obstable['Limits'..p..'High'] = max
     end
-    return OptionsRows(f,obstable)
+    local ret = f:group_box(OptionsRows(f,obstable))
+    ret['title'] = LOC("$$$/MIDI2LR/Limits/Limits=Limits")
+    return ret
+  else
+    return f:column{ f:spacer{height=10}, f:static_text{title = LOC("$$$/MIDI2LR/Limits/Limits/NotDevelop=Limits can only be set with the Develop module active!")}, f:spacer{height=10}, }
   end
   return {visible = false}
 end
