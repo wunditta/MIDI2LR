@@ -48,6 +48,7 @@ Type
   button just on/off
   parameter LR parameter
   variable needs slider value
+  variablemove as above but will be moved when values change (also see CheckVariableMove in ClientUtilities.lua)
   repeat sends repeated LR commands when twisting knob (see LR_IPC_Out.cpp)
 
 Fields (Wraps, Repeats, experimental and panel are optional)
@@ -114,6 +115,16 @@ local colorGrading = LOC('$$$/AgDevelop/Panel/ColorGrading=Color Grading')
 local detail = LOC('$$$/AgDevelop/Panel/Detail=Detail')
 local lensCorrections = LOC('$$$/AgCameraRawNamedSettings/SaveNamedDialog/LensCorrections=Lens Corrections')
 local locadjpre = LOC('$$$/MIDI2LR/LocalPresets/Presets=Local adjustments presets')
+local devpregrps = LOC("$$$/MIDI2LR/PresetGroups/PresetGroups=Develop Preset Groups")
+local devpregrp = LOC("$$$/MIDI2LR/PresetGroups/PresetGroups/Short=Preset Group")
+local devpregrpmulti = LOC("$$$/MIDI2LR/PresetGroups/PresetGroups/Multi=Preset Multi Group")
+local devpregrpcyc = LOC("$$$/MIDI2LR/PresetGroups/PresetGroups/Cycle=Cycle Develop Preset Group")
+local devpregrpcycmulti = LOC("$$$/MIDI2LR/PresetGroups/PresetGroups/CycleMulti=Cycle Preset Multi Group")
+local copystggrp = LOC("$$$/MIDI2LR/CopyPresets/CopyPresets=Develop Settings Copy Presets")
+local copystgcopy = LOC('$$$/AgLibrary/Menu/Develop/CopySettings=Copy Settings')..' '..LOC('$$$/AgDevelop/Setting/Preset=Preset')
+local copystgpaste = LOC('$$$/AgCameraRawNamedSettings/Ops/PasteSettings=Paste Settings')..' '..LOC('$$$/AgDevelop/Setting/Preset=Preset')
+local prenext = LOC('$$$/MIDI2LR/Menu/PresetNext=Next preset')
+local preprev = LOC('$$$/MIDI2LR/Menu/PresetPrevious=Previous preset')
 local transform = LOC('$$$/AgDevelop/CameraRawPanel/Transform=Transform')
 local effects = LOC('$$$/AgCameraRawNamedSettings/SaveNamedDialog/Effects=Effects')
 local calibration = LOC('$$$/AgCameraRawNamedSettings/SaveNamedDialog/Calibration=Calibration')
@@ -255,7 +266,7 @@ local DataBase = {
   {Command='IncreaseRating',Type='button',Translation=LOC('$$$/AgLibrary/Ops/IncreaseRating=Increase Rating'),Group=rating,Explanation=''},
   {Command='DecreaseRating',Type='button',Translation=LOC('$$$/AgLibrary/Ops/DecreaseRating=Decrease Rating'),Group=rating,Explanation=''},
   {Command='IncreaseDecreaseRating',Type='button',Translation=LOC('$$$/AgLibrary/Ops/IncreaseRating=Increase Rating')..' — '..LOC('$$$/AgLibrary/Ops/DecreaseRating=Decrease Rating'),Group=rating,Explanation='Turning knob clockwise increases the star rating, counterclockwise decreases it.'..repeatexp,Repeats={'IncreaseRating','DecreaseRating'}},
-  {Command='SetRating',Type='variable',Translation=LOC('$$$/AgDevelop/Toolbar/Tooltip/SetRating=Set Rating'),Group=rating,Explanation='Unlike *Increase Rating \226\128\148 Decrease Rating*, this relies on the absolute position of the control to set the rating. Best suited for faders. Suggest using *Increase Rating \226\128\148 Decrease Rating* for rotary controls. Note that MIDI2LR does not synchronize the control with the current photo\226\128\153s rating and does not use pickup mode for this control, so the rating will immediately change to the control value when the control is moved, even if the control rating is far from the photo\226\128\153s current rating.'},
+  {Command='SetRating',Type='variablemove',Translation=LOC('$$$/AgDevelop/Toolbar/Tooltip/SetRating=Set Rating'),Group=rating,Explanation='Unlike *Increase Rating \226\128\148 Decrease Rating* (best for rotary controls), this relies on the absolute position of the control to set the rating, i.e. best suited for faders.'},
   --flagging
   {Command='Pick',Type='button',Translation=LOC('$$$/AgLibrary/Help/Shortcuts/SetPick=Set Pick Flag'),Group=flagging,Explanation=''},
   {Command='Reject',Type='button',Translation=LOC('$$$/AgLibrary/Help/Shortcuts/SetReject=Set Rejected Flag'),Group=flagging,Explanation=''},
@@ -267,6 +278,8 @@ local DataBase = {
   {Command='TogglePurple',Type='button',Translation=LOC('$$$/AgLibrary/Undo/ToggleColorLabel=Label ^1 Enable/Disable',LOC('$$$/LibraryImporter/ColorLabelPurple=Purple')),Group=flagging,Explanation=''},
   {Command='ToggleYellow',Type='button',Translation=LOC('$$$/AgLibrary/Undo/ToggleColorLabel=Label ^1 Enable/Disable',LOC('$$$/LibraryImporter/ColorLabelYellow=Yellow')),Group=flagging,Explanation=''},
   {Command='ColorLabelNone',Type='button',Translation=LOC('$$$/AgLibrary/LabelCommands/UndoName/RemovedColorLabel=Remove color label'),Group=flagging,Explanation=''},
+  {Command='SetColorlabel',Type='variablemove',Translation=LOC('$$$/AgDevelop/Toolbar/Tooltip/SetColorLabel=Set Color Label'),Group=flagging,Explanation='Sets the *color label* depending on the absolute position of the control, i.e. best suited for faders.'},
+  {Command='SetFlag',Type='variablemove',Translation=LOC('$$$/AgLibrary/Menu/Photo/SetFlagTitle=Set Flag'),Group=flagging,Explanation='Sets the *flag* (Pick, Unpick, Rejected) depending on the absolute position of the control, i.e. best suited for faders.'},
   --photos
   {Command='AddOrRemoveFromTargetColl',Type='button',Translation=LOC('$$$/Help/Shortcuts/AddToTargetCollection=Add to the target collection'),Group=photos,Explanation='Adds all selected photos to target collection. If the photos are already in the target collection, removes them from it.'},
   {Command='EditPhotoshop',Type='button',Translation=LOC('$$$/AgDevelopShortcuts/Edit_in_Photoshop=Edit in Photoshop'),Group=photos,Explanation='Edit the current photo in Photoshop.'},
@@ -282,6 +295,7 @@ local DataBase = {
   {Command='RotateRight',Type='button',Translation=LOC('$$$/AgDevelopShortcuts/Rotate_right=Rotate right'),Group=photos,Explanation='Rotates all selected photos right.'},
   {Command='FullRefresh',Type='button',Translation=LOC('$$$/AgLibrary/ViewBar/Sort/RefreshMode/Manual=Manual Update'),Group=photos,Explanation='Force an update of all develop settings in MIDI controller, even if MIDI2LR believes MIDI controller is up to date. Useful if controller out of sync with Lightroom (e.g., with layer changes).'},
   {Command='CloseApp',Type='button',Translation=LOC('$$$/AgPluginManager/Status/HttpServer/StopServer=Stop Server'),Group=photos,Explanation='Closes the MIDI2LR application.'},
+  --{Command='DeletePhotos',Type='button',Translation=LOC('$$$/AgLibrary/Menu/Library/DeletePhotos=Delete Photos'),Group=photos,Explanation='Deletes (trash or permanently as set in general options > other) selected photos from disk. Button can be pressed a second time to confirm the warning dialog.'},
   --quick develop
   {Command='QuickDevTempLarge',Type='button',Translation=quickdev..' '..LOC('$$$/AgCameraRawController/TargetAdjustment/Increase=Increase ^1: ^2',LOC('$$$/AgCameraRawUI/Temp=Temperature'),'20'),Group=quickdev,Explanation='Using the Library\226\128\153s quick develop mode, adjusts Temperature by 20 for all selected photos. Works in Library and Develop modules.'},
   {Command='QuickDevTempLargeDec',Type='button',Translation=quickdev..' '..LOC('$$$/AgCameraRawController/TargetAdjustment/Decrease=Decrease ^1: ^2',LOC('$$$/AgCameraRawUI/Temp=Temperature'),'-20'),Group=quickdev,Explanation='Using the Library\226\128\153s quick develop mode, adjusts Temperature by -20 for all selected photos. Works in Library and Develop modules.'},
@@ -363,6 +377,7 @@ local DataBase = {
   {Command='LRCopy',Type='button',Translation='Lightroom '..LOC('$$$/AgLibrary/Menu/Develop/CopySettings=Copy Settings'):gsub('%(%&%a%)',''):gsub('%&',''),Group=develop,Explanation='Lightroom Copy (open the selection box). Sends the keystroke <kbd>\226\140\131 Control</kbd>+<kbd>\226\135\167 Shift</kbd>+<kbd>c</kbd> (Windows) or <kbd>\226\140\152 Command</kbd>+<kbd>\226\135\167 Shift</kbd>+<kbd>c</kbd> (OSX) to Lightroom.'},
   {Command='LRPaste',Type='button',Translation='Lightroom '..LOC('$$$/AgCameraRawNamedSettings/Ops/PasteSettings=Paste Settings'),Group=develop,Explanation='Lightroom Paste. Sends the keystroke <kbd>\226\140\131 Control</kbd>+<kbd>\226\135\167 Shift</kbd>+<kbd>v</kbd> (Windows) or <kbd>\226\140\152 Command</kbd>+<kbd>\226\135\167 Shift</kbd>+<kbd>v</kbd> (OSX) to Lightroom.'},
   {Command='VirtualCopy',Type='button',Translation=LOC('$$$/AgLibrary/History/CreateVirtualCopy=Create Virtual Copy'),Group=develop,Explanation='Creates a virtual copy for each of the currently selected photos and videos. The new virtual copies will be selected.'},
+  {Command='VirtualCopyMaster',Type='button',Experimental=true,Translation='Create Virtual from Master',Group=develop,Explanation=''},
   {Command='ResetAll',Type='button',Translation=LOC('$$$/AgCameraRawNamedSettings/Ops/ResetSettings=Reset Settings'),Group=develop,Explanation='Reset to defaults.'},
   {Command='ResetLast',Type='button',Translation=LOC('$$$/AgCameraRawController/TargetAdjustment/Reset=Reset ^1',LOC('$$$/LibraryUpgradeCatalogUtils/CatalogInfo/LastModified/Label=Last Modified'):gsub(' ?:','')),Group=develop,Explanation='Resets the last parameter that was adjusted by an encoder or fader to default.'},
   {Command='ChangeLastDevelopParameter',Type='repeat',Translation=LOC('$$$/ImportView/More=More')..' – '..LOC('$$$/ImportView/Less=Less')..' '..LOC('$$$/LibraryUpgradeCatalogUtils/CatalogInfo/LastModified/Label=Last Modified'),Group=develop,Explanation='Increments or decrements the last parameter that was adjusted by an encoder or fader. Turning knob clockwise sends Increment signals to Lightroom, counterclockwise Decrement.'..repeatexp,Repeats={'IncrementLastDevelopParameter','DecrementLastDevelopParameter'}},
@@ -388,6 +403,9 @@ local DataBase = {
   {Command='ShoVwRefHoriz',Type='button',Translation=primaryDisplay..' '..LOC('$$$/AgDevelop/Menu/View/ReferenceActiveLeftRight=Reference View — Left/Right'),Group=develop,Explanation=''},
   {Command='ShoVwRefVert',Type='button',Translation=primaryDisplay..' '..LOC('$$$/AgDevelop/Menu/View/ReferenceActiveTopBottom=Reference View — Top/Bottom'),Group=develop,Explanation=''},
   {Command='ShoVwdevelop_loupe',Type='button',Translation=primaryDisplay..' '..LOC('$$$/AgPhotoBin/ViewMode/Develop/Loupe=Loupe'),Group=develop,Explanation=''},
+  {Command='FineActivate',Type='button',Translation=LOC("$$$/MIDI2LR/Finetune/Title=Fine-tuning")..' '..LOC("$$$/TouchWorkspace/Adjustments/On=On"),Group=develop,Explanation='Activates Fine-tuning mode, where the values in Lr changes only slightly when moving the control.'},
+  {Command='FineDeactivate',Type='button',Translation=LOC("$$$/MIDI2LR/Finetune/Title=Fine-tuning")..' '..LOC("$$$/TouchWorkspace/Adjustments/Off=Off"),Group=develop,Explanation='Deactivates Fine-tuning mode, where the values in Lr changes only slightly when moving the control.'},
+  {Command='FineToggle',Type='button',Translation=LOC("$$$/MIDI2LR/Finetune/Title=Fine-tuning")..' '..LOC("$$$/TouchWorkspace/Adjustments/On=On")..'/'..LOC("$$$/TouchWorkspace/Adjustments/Off=Off"),Group=develop,Explanation='Toggles Fine-tuning mode, where the values in Lr changes only slightly when moving the control.'},
   --
   --develop: basic tone panel
   --
@@ -415,6 +433,7 @@ local DataBase = {
   {Command='Dehaze',Type='parameter',Translation=LOC('$$$/AgCameraRawUI/DehazeAmount=Dehaze Amount')..' (PV 3+)',PV3=LOC('$$$/AgCameraRawUI/DehazeAmount=Dehaze Amount'),Group=basicTone,Explanation='Controls the amount of haze in a photograph. Drag to the right to remove haze; drag to the left to add haze. For PV 3+ only.',Panel='adjustPanel'},
   {Command='Vibrance',Type='parameter',Translation=LOC('$$$/AgCameraRawUI/Vibrance=Vibrance'),Group=basicTone,Explanation='Adjusts the saturation so that clipping is minimized as colors approach full saturation, changing the saturation of all lower-saturated colors with less effect on the higher-saturated colors. Vibrance also prevents skin tones from becoming over saturated.',Panel='adjustPanel'},
   {Command='Saturation',Type='parameter',Translation=LOC('$$$/AgCameraRawUI/Saturation=Saturation'),Group=basicTone,Explanation='Adjusts the saturation of all image colors equally from -100 (monochrome) to +100 (double the saturation).',Panel='adjustPanel'},
+  {Command='ProfileAmount',Type='parameter',Translation=LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/ProfileAmount=Profile amount'),Group=basicTone,Explanation='Amount of how much the selected color profile is applied to the image.',Panel='adjustPanel'},
   {Command='ResetTemperature',Type='button',Translation=LOC('$$$/AgCameraRawController/TargetAdjustment/Reset=Reset ^1',LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/Temperature=Temperature')),Group=basicTone,Explanation='Reset to default.',Panel='adjustPanel'},
   {Command='ResetTint',Type='button',Translation=LOC('$$$/AgCameraRawController/TargetAdjustment/Reset=Reset ^1',LOC('$$$/AgCameraRawUI/Tint=Tint')),Group=basicTone,Explanation='Reset to default.',Panel='adjustPanel'},
   {Command='ResetExposure',Type='button',Translation=LOC('$$$/AgCameraRawController/TargetAdjustment/Reset=Reset ^1',LOC('$$$/AgCameraRawUI/Exposure=Exposure')),Group=basicTone,Explanation='Reset to default.',Panel='adjustPanel'},
@@ -440,6 +459,7 @@ local DataBase = {
   {Command='ParametricShadowSplit',Type='parameter',Translation=LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/ToneShadowSplit=Shadow Split'),Group=toneCurve,Explanation='Move division between shadows and darks.',Panel='tonePanel'},
   {Command='ParametricMidtoneSplit',Type='parameter',Translation=LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/ToneMidtoneSplit=Midtone Split'),Group=toneCurve,Explanation='Move division between darks and lights.',Panel='tonePanel'},
   {Command='ParametricHighlightSplit',Type='parameter',Translation=LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/ToneHighlightSplit=Highlight Split'),Group=toneCurve,Explanation='Move division between lights and highlights.',Panel='tonePanel'},
+  {Command='CurveRefineSaturation',Type='parameter',Translation=LOC('$$$/AgDevelop/Settings/CurveRefineSaturation=Refine Saturation'),Group=toneCurve,Explanation='Reduces saturation caused by tone curve (0 is original saturation).',Panel='tonePanel'},
   {Command='ResetParametricDarks',Type='button',Translation=LOC('$$$/AgCameraRawController/TargetAdjustment/Reset=Reset ^1',LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/ToneDarks=Dark Tones')),Group=toneCurve,Explanation='Reset to default.',Panel='tonePanel'},
   {Command='ResetParametricLights',Type='button',Translation=LOC('$$$/AgCameraRawController/TargetAdjustment/Reset=Reset ^1',LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/ToneLights=Light Tones')),Group=toneCurve,Explanation='Reset to default.',Panel='tonePanel'},
   {Command='ResetParametricShadows',Type='button',Translation=LOC('$$$/AgCameraRawController/TargetAdjustment/Reset=Reset ^1',LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/ToneShadows=Shadow Tones')),Group=toneCurve,Explanation='Reset to default.',Panel='tonePanel'},
@@ -450,6 +470,12 @@ local DataBase = {
   {Command='PointCurveLinear',Type='button',Translation=toneCurve..' '..LOC('$$$/CRaw/ToneCurvePreset/Linear=Linear'),Group=toneCurve,Explanation='Linear Point Curve.',Panel='tonePanel'},
   {Command='PointCurveMediumContrast',Type='button',Translation=toneCurve..' '..LOC('$$$/CRaw/ToneCurvePreset/MediumContrast=Medium Contrast'),Group=toneCurve,Explanation='Medium Contrast Point Curve.',Panel='tonePanel'},
   {Command='PointCurveStrongContrast',Type='button',Translation=toneCurve..' '..LOC('$$$/CRaw/ToneCurvePreset/StrongContrast=Strong Contrast'),Group=toneCurve,Explanation='Strong Contrast Point Curve.',Panel='tonePanel'},
+  {Command='PointCurveBlacksUp',Type='button',Translation=LOC("$$$/MIDI2LR/ToneCurve/Blacks=Tone Curve Blacks")..' '..LOC("$$$/MIDI2LR/ToneCurve/Up=Up"),Group=toneCurve,Explanation='Moves the tone curve points for blacks and shadows up.',Panel='tonePanel'},
+  {Command='PointCurveBlacksDown',Type='button',Translation=LOC("$$$/MIDI2LR/ToneCurve/Blacks=Tone Curve Blacks")..' '..LOC("$$$/MIDI2LR/ToneCurve/Down=Down"),Group=toneCurve,Explanation='Moves the tone curve points for blacks and shadows down.',Panel='tonePanel'},
+  {Command='PointCurveHighlightsUp',Type='button',Translation=LOC("$$$/MIDI2LR/ToneCurve/Highlights=Tone Curve Highlights")..' '..LOC("$$$/MIDI2LR/ToneCurve/Up=Up"),Group=toneCurve,Explanation='Moves the tone curve points for highlights and whites up.',Panel='tonePanel'},
+  {Command='PointCurveHighlightsDown',Type='button',Translation=LOC("$$$/MIDI2LR/ToneCurve/Highlights=Tone Curve Highlights")..' '..LOC("$$$/MIDI2LR/ToneCurve/Down=Down"),Group=toneCurve,Explanation='Moves the tone curve points for highlights and whites down.',Panel='tonePanel'},
+  {Command='PointCurveBlacksUpDown',Type='repeat',Translation=LOC("$$$/MIDI2LR/ToneCurve/Blacks=Tone Curve Blacks")..' '..LOC("$$$/MIDI2LR/ToneCurve/Up=Up")..'—'..LOC("$$$/MIDI2LR/ToneCurve/Down=Down"),Group=toneCurve,Explanation='Turning knob moves the tone curve points for blacks and shadows up and down.',Repeats={'PointCurveBlacksUp','PointCurveBlacksDown'}},
+  {Command='PointCurveHighlightsUpDown',Type='repeat',Translation=LOC("$$$/MIDI2LR/ToneCurve/Highlights=Tone Curve Highlights")..' '..LOC("$$$/MIDI2LR/ToneCurve/Up=Up")..'—'..LOC("$$$/MIDI2LR/ToneCurve/Down=Down"),Group=toneCurve,Explanation='Turning knob moves the tone curve points for highlights and whites up and down.',Repeats={'PointCurveHighlightsUp','PointCurveHighlightsDown'}},
   --
   --develop: mixer panel
   --
@@ -684,7 +710,6 @@ local DataBase = {
   --
   {Command='RevealPanelCalibrate',Type='button',Translation=LOC('$$$/MIDI2LR/Database/Show1=Show ^1',calibration),Group=calibration,Explanation='Open Camera Calibration Panel in Develop Module.'},
   {Command='EnableCalibration',Type='button',Translation=LOC('$$$/AgDevelop/Settings/ToggleCalibration=Calibration enable/disable'),Group=calibration,Explanation='Enable or disable custom camera calibration.',Panel='calibratePanel'},
-  {Command='ProfileAmount',Type='variable',Translation=LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/ProfileAmount=Profile amount'),Group=calibration,Explanation='Varies amount of custom calibration applied. **Note**: The MIDI controller does not get updated when the value is changed directly in Lightroom, either by using a mouse or when changing images. Pickup mode does not affect behavior of this adjustment. Also, Lightroom may complain of being unable to update the value if too many changes occur in a short period of time. Just dismiss those warnings and continue.', Panel='calibratePanel'},
   {Command='ShadowTint',Type='parameter',Translation=LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/ShadowTintCalibration=Shadow Tint Calibration'),Group=calibration,Explanation='Corrects for any green or magenta tint in the shadow areas of the photo.',Panel='calibratePanel'},
   {Command='RedHue',Type='parameter',Translation=LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/RedHueCalibration=Red Hue Calibration'),Group=calibration,Explanation='For the red primary. Moving the Hue slider to the left (negative value) is similar to a counterclockwise move on the color wheel; moving it to the right (positive value) is similar to a clockwise move.',Panel='calibratePanel'},
   {Command='RedSaturation',Type='parameter',Translation=LOC('$$$/AgCameraRawNamedSettings/CameraRawSettingMapping/RedSaturationCalibration=Red Saturation Calibration'),Group=calibration,Explanation='For the red primary. Moving the Saturation slider to the left (negative value) desaturates the color; moving it to the right (positive value) increases saturation.',Panel='calibratePanel'},
@@ -702,9 +727,9 @@ local DataBase = {
   --
   --develop: develop presets
   --
-  {Command='PresetPrevious',Type='button',Translation=LOC('$$$/MIDI2LR/Menu/PresetPrevious=Previous preset'),Group=developPresets,Explanation='Apply previous preset (in numerical order) to active photo only.'},
-  {Command='PresetNext',Type='button',Translation=LOC('$$$/MIDI2LR/Menu/PresetNext=Next preset'),Group=developPresets,Explanation='Apply next preset (in numerical order) to active photo only.'},
-  {Command='PresetPreviousNext',Type='repeat',Translation=LOC('$$$/MIDI2LR/Menu/PresetPrevious=Previous preset')..'—'..LOC('$$$/MIDI2LR/Menu/PresetNext=Next preset'),Group=developPresets,Explanation='Turning knob clockwise applies next preset, counterclockwise, previous.'..repeatexp,Repeats={'PresetNext','PresetPrevious'}},
+  {Command='PresetPrevious',Type='button',Translation=preprev,Group=developPresets,Explanation='Apply previous preset (in numerical order) to active photo only.'},
+  {Command='PresetNext',Type='button',Translation=prenext,Group=developPresets,Explanation='Apply next preset (in numerical order) to active photo only.'},
+  {Command='PresetPreviousNext',Type='repeat',Translation=preprev..'—'..prenext,Group=developPresets,Explanation='Turning knob clockwise applies next preset, counterclockwise, previous.'..repeatexp,Repeats={'PresetNext','PresetPrevious'}},
   {Command='PresetAmount',Type='parameter',Translation=LOC('$$$/AgDevelop/CameraRawPanel/LensCorrection/Amount=Amount'),Group=developPresets,Explanation='Vary amount of preset applied. Only works when preset amount slider is present.',AltParameter='Direct'},
   {Command='Preset_1',Type='button',Translation=developPreset..' 1',Group=developPresets,Explanation='Apply preset 1 to active photo only.'},
   {Command='Preset_2',Type='button',Translation=developPreset..' 2',Group=developPresets,Explanation='Apply preset 2 to active photo only.'},
@@ -786,7 +811,79 @@ local DataBase = {
   {Command='Preset_78',Type='button',Translation=developPreset..' 78',Group=developPresets,Explanation='Apply preset 78 to active photo only.'},
   {Command='Preset_79',Type='button',Translation=developPreset..' 79',Group=developPresets,Explanation='Apply preset 79 to active photo only.'},
   {Command='Preset_80',Type='button',Translation=developPreset..' 80',Group=developPresets,Explanation='Apply preset 80 to active photo only.'},
-
+  --
+  --develop preset groups
+  --
+  {Command='PreGrp1n',Type='button',Translation=devpregrp..' 1 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 1.'},
+  {Command='PreGrp1p',Type='button',Translation=devpregrp..' 1 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 1.'},
+  {Command='PreGrp2n',Type='button',Translation=devpregrp..' 2 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 2.'},
+  {Command='PreGrp2p',Type='button',Translation=devpregrp..' 2 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 2.'},
+  {Command='PreGrp3n',Type='button',Translation=devpregrp..' 3 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 3.'},
+  {Command='PreGrp3p',Type='button',Translation=devpregrp..' 3 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 3.'},
+  {Command='PreGrp4n',Type='button',Translation=devpregrp..' 4 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 4.'},
+  {Command='PreGrp4p',Type='button',Translation=devpregrp..' 4 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 4.'},
+  {Command='PreGrp5n',Type='button',Translation=devpregrp..' 5 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 5.'},
+  {Command='PreGrp5p',Type='button',Translation=devpregrp..' 5 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 5.'},
+  {Command='PreGrp6n',Type='button',Translation=devpregrp..' 6 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 6.'},
+  {Command='PreGrp6p',Type='button',Translation=devpregrp..' 6 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 6.'},
+  {Command='PreGrp7n',Type='button',Translation=devpregrp..' 7 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 7.'},
+  {Command='PreGrp7p',Type='button',Translation=devpregrp..' 7 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 7.'},
+  {Command='PreGrp8n',Type='button',Translation=devpregrp..' 8 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 8.'},
+  {Command='PreGrp8p',Type='button',Translation=devpregrp..' 8 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 8.'},
+  {Command='PreGrp9n',Type='button',Translation=devpregrp..' 9 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 9.'},
+  {Command='PreGrp9p',Type='button',Translation=devpregrp..' 9 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 9.'},
+  {Command='PreGrp10n',Type='button',Translation=devpregrp..' 10 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 10.'},
+  {Command='PreGrp10p',Type='button',Translation=devpregrp..' 10 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 10.'},
+  {Command='PreGrp11n',Type='button',Translation=devpregrp..' 11 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 11.'},
+  {Command='PreGrp11p',Type='button',Translation=devpregrp..' 11 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 11.'},
+  {Command='PreGrp12n',Type='button',Translation=devpregrp..' 12 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 12.'},
+  {Command='PreGrp12p',Type='button',Translation=devpregrp..' 12 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 12.'},
+  {Command='PreGrp13n',Type='button',Translation=devpregrp..' 13 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 13.'},
+  {Command='PreGrp13p',Type='button',Translation=devpregrp..' 13 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 13.'},
+  {Command='PreGrp14n',Type='button',Translation=devpregrp..' 14 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 14.'},
+  {Command='PreGrp14p',Type='button',Translation=devpregrp..' 14 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 14.'},
+  {Command='PreGrp15n',Type='button',Translation=devpregrp..' 15 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 15.'},
+  {Command='PreGrp15p',Type='button',Translation=devpregrp..' 15 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 15.'},
+  {Command='PreGrp16n',Type='button',Translation=devpregrp..' 16 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the develop preset group 16.'},
+  {Command='PreGrp16p',Type='button',Translation=devpregrp..' 16 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the develop preset group 16.'},
+  {Command='CyclePreGrp1',Type='repeat',Translation=devpregrpcyc..' 1',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 1.'..repeatexp,Repeats={'PreGrp1n','PreGrp1p'}},
+  {Command='CyclePreGrp2',Type='repeat',Translation=devpregrpcyc..' 2',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 2.'..repeatexp,Repeats={'PreGrp2n','PreGrp2p'}},
+  {Command='CyclePreGrp3',Type='repeat',Translation=devpregrpcyc..' 3',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 3.'..repeatexp,Repeats={'PreGrp3n','PreGrp3p'}},
+  {Command='CyclePreGrp4',Type='repeat',Translation=devpregrpcyc..' 4',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 4.'..repeatexp,Repeats={'PreGrp4n','PreGrp4p'}},
+  {Command='CyclePreGrp5',Type='repeat',Translation=devpregrpcyc..' 5',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 5.'..repeatexp,Repeats={'PreGrp5n','PreGrp5p'}},
+  {Command='CyclePreGrp6',Type='repeat',Translation=devpregrpcyc..' 6',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 6.'..repeatexp,Repeats={'PreGrp6n','PreGrp6p'}},
+  {Command='CyclePreGrp7',Type='repeat',Translation=devpregrpcyc..' 7',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 7.'..repeatexp,Repeats={'PreGrp7n','PreGrp7p'}},
+  {Command='CyclePreGrp8',Type='repeat',Translation=devpregrpcyc..' 8',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 8.'..repeatexp,Repeats={'PreGrp8n','PreGrp8p'}},
+  {Command='CyclePreGrp9',Type='repeat',Translation=devpregrpcyc..' 9',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 9.'..repeatexp,Repeats={'PreGrp9n','PreGrp9p'}},
+  {Command='CyclePreGrp10',Type='repeat',Translation=devpregrpcyc..' 10',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 10.'..repeatexp,Repeats={'PreGrp10n','PreGrp10p'}},
+  {Command='CyclePreGrp11',Type='repeat',Translation=devpregrpcyc..' 11',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 11.'..repeatexp,Repeats={'PreGrp11n','PreGrp11p'}},
+  {Command='CyclePreGrp12',Type='repeat',Translation=devpregrpcyc..' 12',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 12.'..repeatexp,Repeats={'PreGrp12n','PreGrp12p'}},
+  {Command='CyclePreGrp13',Type='repeat',Translation=devpregrpcyc..' 13',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 13.'..repeatexp,Repeats={'PreGrp13n','PreGrp13p'}},
+  {Command='CyclePreGrp14',Type='repeat',Translation=devpregrpcyc..' 14',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 14.'..repeatexp,Repeats={'PreGrp14n','PreGrp14p'}},
+  {Command='CyclePreGrp15',Type='repeat',Translation=devpregrpcyc..' 15',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 15.'..repeatexp,Repeats={'PreGrp15n','PreGrp15p'}},
+  {Command='CyclePreGrp16',Type='repeat',Translation=devpregrpcyc..' 16',Group=devpregrps,Explanation='Cycles through the presets within develop presets group 16.'..repeatexp,Repeats={'PreGrp16n','PreGrp16p'}},
+  {Command='PreGrpMulti1n',Type='button',Translation=devpregrpmulti..' 1 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the preset multi group 1.'},
+  {Command='PreGrpMulti1p',Type='button',Translation=devpregrpmulti..' 1 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the preset multi group 1.'},
+  {Command='PreGrpMulti2n',Type='button',Translation=devpregrpmulti..' 2 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the preset multi group 2.'},
+  {Command='PreGrpMulti2p',Type='button',Translation=devpregrpmulti..' 2 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the preset multi group 2.'},
+  {Command='PreGrpMulti3n',Type='button',Translation=devpregrpmulti..' 3 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the preset multi group 3.'},
+  {Command='PreGrpMulti3p',Type='button',Translation=devpregrpmulti..' 3 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the preset multi group 3.'},
+  {Command='PreGrpMulti4n',Type='button',Translation=devpregrpmulti..' 4 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the preset multi group 4.'},
+  {Command='PreGrpMulti4p',Type='button',Translation=devpregrpmulti..' 4 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the preset multi group 4.'},
+  {Command='PreGrpMulti5n',Type='button',Translation=devpregrpmulti..' 5 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the preset multi group 5.'},
+  {Command='PreGrpMulti5p',Type='button',Translation=devpregrpmulti..' 5 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the preset multi group 5.'},
+  {Command='PreGrpMulti6n',Type='button',Translation=devpregrpmulti..' 6 '..prenext,Group=devpregrps,Explanation='Apply the next preset within the preset multi group 6.'},
+  {Command='PreGrpMulti6p',Type='button',Translation=devpregrpmulti..' 6 '..preprev,Group=devpregrps,Explanation='Apply the previous preset within the preset multi group 6.'},
+  {Command='CyclePreGrpMulti1',Type='repeat',Translation=devpregrpcycmulti..' 1',Group=devpregrps,Explanation='Cycles through the presets within presets multi group 1.'..repeatexp,Repeats={'PreGrpMulti1n','PreGrpMulti1p'}},
+  {Command='CyclePreGrpMulti2',Type='repeat',Translation=devpregrpcycmulti..' 2',Group=devpregrps,Explanation='Cycles through the presets within presets multi group 2.'..repeatexp,Repeats={'PreGrpMulti2n','PreGrpMulti2p'}},
+  {Command='CyclePreGrpMulti3',Type='repeat',Translation=devpregrpcycmulti..' 3',Group=devpregrps,Explanation='Cycles through the presets within presets multi group 3.'..repeatexp,Repeats={'PreGrpMulti3n','PreGrpMulti3p'}},
+  {Command='CyclePreGrpMulti4',Type='repeat',Translation=devpregrpcycmulti..' 4',Group=devpregrps,Explanation='Cycles through the presets within presets multi group 4.'..repeatexp,Repeats={'PreGrpMulti4n','PreGrpMulti4p'}},
+  {Command='CyclePreGrpMulti5',Type='repeat',Translation=devpregrpcycmulti..' 5',Group=devpregrps,Explanation='Cycles through the presets within presets multi group 5.'..repeatexp,Repeats={'PreGrpMulti5n','PreGrpMulti5p'}},
+  {Command='CyclePreGrpMulti6',Type='repeat',Translation=devpregrpcycmulti..' 6',Group=devpregrps,Explanation='Cycles through the presets within presets multi group 6.'..repeatexp,Repeats={'PreGrpMulti6n','PreGrpMulti6p'}},
+  {Command='PreGrpAlln',Type='button',Translation=LOC("$$$/MIDI2LR/PresetGroups/PresetGroups/All=All Preset Groups")..' '..prenext,Group=devpregrps,Explanation='Apply the next preset of all preset groups.'},
+  {Command='PreGrpAllp',Type='button',Translation=LOC("$$$/MIDI2LR/PresetGroups/PresetGroups/All=All Preset Groups")..' '..preprev,Group=devpregrps,Explanation='Apply the previous preset of all preset groups.'},
+  {Command='CyclePreGrpAll',Type='repeat',Translation=LOC("$$$/MIDI2LR/PresetGroups/PresetGroups/CycleAll=Cycle All Preset Groups"),Group=devpregrps,Explanation='Cycles through all presets of all preset groups.'..repeatexp,Repeats={'PreGrpAlln','PreGrpAllp'}},
+  
   --
   --keywords
   --
@@ -942,38 +1039,54 @@ local DataBase = {
   {Command='MaskInvertTool',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/ToggleInvert=Toggle invert for selected tool'),Group=mask,Explanation=''},
   {Command='MaskHide',Type='button',Translation=LOC('$$$/MIDI2LR/ShortCuts/ShowHide1=Show/hide ^1',LOC('$$$/AgDevelop/Menu/View/MaskGroup=mask group')),Group=mask,Explanation='Show/hide the effect of selected mask group.'},
   {Command='MaskHideTool',Type='button',Translation=LOC('$$$/MIDI2LR/ShortCuts/ShowHide1=Show/hide ^1',LOC('$$$/MIDI2LR/Menu/Tool=tool')),Group=mask,Explanation='Show/hide the effect of selected individual mask tool within the current group.'},
+
+  {Command='MaskNewSubject',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectSubject/Short=subject'),Group=mask,Explanation=''},
+  {Command='MaskNewSky',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectSky/Short=sky'),Group=mask,Explanation=''},
+  {Command='MaskNewBack',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectBackground/Short=background'),Group=mask,Explanation=''},
+  {Command='MaskNewObj',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectObject/Short=object'),Group=mask,Explanation=''},
   {Command='MaskNewBrush',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/Brush=brush'),Group=mask,Explanation=''},
   {Command='MaskNewGrad',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/Gradient=gradient'),Group=mask,Explanation=''},
   {Command='MaskNewRad',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/CircularGradient=radial gradient'),Group=mask,Explanation=''},
   {Command='MaskNewColor',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/ColorRange=color range'),Group=mask,Explanation=''},
   {Command='MaskNewLum',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/LuminanceRange=luminance range'),Group=mask,Explanation=''},
   {Command='MaskNewDepth',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/DepthRange=depth range'),Group=mask,Explanation=''},
-  {Command='MaskNewSubject',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectSubject/Short=subject'),Group=mask,Explanation=''},
-  {Command='MaskNewSky',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectSky/Short=sky'),Group=mask,Explanation=''},
+  {Command='MaskNewPeople',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewMask=New ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectPerson/Short=persons'),Group=mask,Explanation=''},
+
+  {Command='MaskAddSubject',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectSubject/Short=subject'),Group=mask,Explanation=''},
+  {Command='MaskAddSky',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectSky/Short=sky'),Group=mask,Explanation=''},
+  {Command='MaskAddBack',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/AddToMask=Add ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectBackground/Short=background'),Group=mask,Explanation=''},
+  {Command='MaskAddObj',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/AddToMask=Add ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectObject/Short=object'),Group=mask,Explanation=''},
   {Command='MaskAddBrush',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/Brush=brush'),Group=mask,Explanation=''},
   {Command='MaskAddGrad',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/Gradient=gradient'),Group=mask,Explanation=''},
   {Command='MaskAddRad',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/CircularGradient=radial gradient'),Group=mask,Explanation=''},
   {Command='MaskAddColor',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/ColorRange=color range'),Group=mask,Explanation=''},
   {Command='MaskAddLum',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/LuminanceRange=luminance range'),Group=mask,Explanation=''},
   {Command='MaskAddDepth',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/DepthRange=depth range'),Group=mask,Explanation=''},
-  {Command='MaskAddSubject',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectSubject/Short=subject'),Group=mask,Explanation=''},
-  {Command='MaskAddSky',Type='button',Translation=LOC('$$$/AgDevelop/Localized/Masking/AddToMask=Add ^1 to the mask',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectSky/Short=sky'),Group=mask,Explanation=''},
+  {Command='MaskAddPeople',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/AddToMask=Add ^1',LOC'$$$/AgDevelop/Localized/MaskGroup/SelectPerson/Short=persons'),Group=mask,Explanation=''},
+
+  {Command='MaskSubSubject',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectSubject/Short=subject'),Group=mask,Explanation=''},
+  {Command='MaskSubSky',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectSky/Short=sky'),Group=mask,Explanation=''},
+  {Command='MaskSubBack',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectBackground/Short=background'),Group=mask,Explanation=''},
+  {Command='MaskSubObj',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectObject/Short=object'),Group=mask,Explanation=''},
   {Command='MaskSubBrush',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/Brush=brush'),Group=mask,Explanation=''},
   {Command='MaskSubGrad',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/Gradient=gradient'),Group=mask,Explanation=''},
   {Command='MaskSubRad',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/CircularGradient=radial gradient'),Group=mask,Explanation=''},
   {Command='MaskSubColor',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/ColorRange=color range'),Group=mask,Explanation=''},
   {Command='MaskSubLum',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/LuminanceRange=luminance range'),Group=mask,Explanation=''},
   {Command='MaskSubDepth',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/DepthRange=depth range'),Group=mask,Explanation=''},
-  {Command='MaskSubSubject',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectSubject/Short=subject'),Group=mask,Explanation=''},
-  {Command='MaskSubSky',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectSky/Short=sky'),Group=mask,Explanation=''},
+  {Command='MaskSubPeople',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Subtract=Subtract from mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectPerson/Short=persons'),Group=mask,Explanation=''},
+
+  {Command='MaskIntSubject',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectSubject/Short=subject'),Group=mask,Explanation=''},
+  {Command='MaskIntSky',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectSky/Short=sky'),Group=mask,Explanation=''},
   {Command='MaskIntBrush',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/Brush=brush'),Group=mask,Explanation=''},
   {Command='MaskIntGrad',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/Gradient=gradient'),Group=mask,Explanation=''},
   {Command='MaskIntRad',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/CircularGradient=radial gradient'),Group=mask,Explanation=''},
   {Command='MaskIntColor',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/ColorRange=color range'),Group=mask,Explanation=''},
   {Command='MaskIntLum',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/LuminanceRange=luminance range'),Group=mask,Explanation=''},
   {Command='MaskIntDepth',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/DepthRange=depth range'),Group=mask,Explanation=''},
-  {Command='MaskIntSubject',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectSubject/Short=subject'),Group=mask,Explanation=''},
-  {Command='MaskIntSky',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectSky/Short=sky'),Group=mask,Explanation=''},
+  {Command='MaskIntBack',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectBackground/Short=background'),Group=mask,Explanation=''},
+  {Command='MaskIntObj',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectObject/Short=object'),Group=mask,Explanation=''},
+  {Command='MaskIntPeople',Type='button',Translation=LOC('$$$/AgDevelop/Localized/MaskGroup/NewComponent/Intersect=Intersect with mask...')..' '..LOC('$$$/AgDevelop/Localized/MaskGroup/SelectPerson/Short=persons'),Group=mask,Explanation=''},
 
   --
   --develop: localized adjustments
@@ -1084,18 +1197,32 @@ local DataBase = {
   {Command='LocalPreset49',Type='button',Translation=locadjpre..' 49',Group=locadjpre,Explanation='Use preset 49 for localized adjustments.'},
   {Command='LocalPreset50',Type='button',Translation=locadjpre..' 50',Group=locadjpre,Explanation='Use preset 50 for localized adjustments.'},
   --
+  -- Copy Settings Presets
+  --
+  {Command='CopyPreset1copy',Type='button',Translation=copystgcopy..' 1',Group=copystggrp,Explanation='Copies the development settings as specified for preset 1.'},
+  {Command='CopyPreset1paste',Type='button',Translation=copystgpaste..' 1',Group=copystggrp,Explanation='Pastes the development settings as specified for preset 1.'},
+  {Command='CopyPreset2copy',Type='button',Translation=copystgcopy..' 2',Group=copystggrp,Explanation='Copies the development settings as specified for preset 2.'},
+  {Command='CopyPreset2paste',Type='button',Translation=copystgpaste..' 2',Group=copystggrp,Explanation='Pastes the development settings as specified for preset 2.'},
+  {Command='CopyPreset3copy',Type='button',Translation=copystgcopy..' 3',Group=copystggrp,Explanation='Copies the development settings as specified for preset 3.'},
+  {Command='CopyPreset3paste',Type='button',Translation=copystgpaste..' 3',Group=copystggrp,Explanation='Pastes the development settings as specified for preset 3.'},
+  {Command='CopyPreset4copy',Type='button',Translation=copystgcopy..' 4',Group=copystggrp,Explanation='Copies the development settings as specified for preset 4.'},
+  {Command='CopyPreset4paste',Type='button',Translation=copystgpaste..' 4',Group=copystggrp,Explanation='Pastes the development settings as specified for preset 4.'},
+  {Command='CopyPreset5copy',Type='button',Translation=copystgcopy..' 5',Group=copystggrp,Explanation='Copies the development settings as specified for preset 5.'},
+  {Command='CopyPreset5paste',Type='button',Translation=copystgpaste..' 5',Group=copystggrp,Explanation='Pastes the development settings as specified for preset 5.'},
+  {Command='CopyPreset6copy',Type='button',Translation=copystgcopy..' 6',Group=copystggrp,Explanation='Copies the development settings as specified for preset 6.'},
+  {Command='CopyPreset6paste',Type='button',Translation=copystgpaste..' 6',Group=copystggrp,Explanation='Pastes the development settings as specified for preset 6.'},
+  --
   -- Misc
   --
-
   {Command='straightenAngle',Type='parameter',Translation=LOC('$$$/AgCameraRawNamedSettings/SaveNamedDialog/StraightenAngle=Straighten Angle'),Group=crop,Explanation='Rotate crop angle. Moves angle in crop tool panel from -45 to 45.'},
   {Command='CropBottom',Type='parameter',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Bottom=Bottom'),Group=crop,Explanation='Adjust bottom of crop rectangle.'},
   {Command='CropLeft',Type='parameter',Experimental=true,Translation=crop..' - '..LOC('$$$/AgWatermarking/Alignment/Left=Left'),Group=crop,Explanation='Adjust left side of crop rectangle.'},
   {Command='CropRight',Type='parameter',Experimental=true,Translation=crop..' - '..LOC('$$$/AgWatermarking/Alignment/Right=Right'),Group=crop,Explanation='Adjust right side of crop rectangle.'},
   {Command='CropTop',Type='parameter',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Top=Top'),Group=crop,Explanation='Adjust top of crop rectangle.'},
-  {Command='CropTopLeft', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Top=Top')..' - '..LOC('$$$/AgWatermarking/Alignment/Left=Left'),Group=crop,Explanation='Adjust crop from top left corner, preserving the current crop ratio.'},
-  {Command='CropTopRight', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Top=Top')..' - '..LOC('$$$/AgWatermarking/Alignment/Right=Right'),Group=crop,Explanation='Adjust crop from top right corner, preserving the current crop ratio.'},
-  {Command='CropBottomLeft', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Bottom=Bottom')..' - '..LOC('$$$/AgWatermarking/Alignment/Left=Left'),Group=crop,Explanation='Adjust crop from bottom left corner, preserving the current crop ratio.'},
-  {Command='CropBottomRight', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Bottom=Bottom')..' - '..LOC('$$$/AgWatermarking/Alignment/Right=Right'),Group=crop,Explanation='Adjust crop from bottom right corner, preserving the current crop ratio.'},
+  --{Command='CropTopLeft', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Top=Top')..' - '..LOC('$$$/AgWatermarking/Alignment/Left=Left'),Group=crop,Explanation='Adjust crop from top left corner, preserving the current crop ratio.'},
+  --{Command='CropTopRight', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Top=Top')..' - '..LOC('$$$/AgWatermarking/Alignment/Right=Right'),Group=crop,Explanation='Adjust crop from top right corner, preserving the current crop ratio.'},
+  --{Command='CropBottomLeft', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Bottom=Bottom')..' - '..LOC('$$$/AgWatermarking/Alignment/Left=Left'),Group=crop,Explanation='Adjust crop from bottom left corner, preserving the current crop ratio.'},
+  --{Command='CropBottomRight', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/Layout/Panel/Panel/OutputFormat/PageNumber/Bottom=Bottom')..' - '..LOC('$$$/AgWatermarking/Alignment/Right=Right'),Group=crop,Explanation='Adjust crop from bottom right corner, preserving the current crop ratio.'},
   {Command='CropAll', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/AgDevelop/LookBrowser/ProfileFilter/All=All'),Group=crop,Explanation='Adjust crop at all corners proportionately, preserving the current crop ratio.'},
   {Command='CropMoveVertical', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/AgHTemplateBrowserView2/Dialog/Title/Move=move ^1',LOC('$$$/AgLibrary/Ops/flip/direction/v=vertically')),Group=crop,Explanation='Move crop rectangle up or down, preserving the current crop ratio.'},
   {Command='CropMoveHorizontal', Type = 'variable',Experimental=true,Translation=crop..' - '..LOC('$$$/AgHTemplateBrowserView2/Dialog/Title/Move=move ^1',LOC('$$$/AgLibrary/Ops/flip/direction/h=horizontally')),Group=crop,Explanation='Move crop rectangle right or left, preserving the current crop ratio.'},
@@ -1150,6 +1277,7 @@ local CmdTrans={}
 local CmdPanel={}
 local Parameters={}
 local ValidActions={}
+local VariableMove={} -- for variables (sliders) which should move on value change
 --update LatestPVSupported (at top of this file) when adding PVs below
 for _,v in ipairs(DataBase) do
   CmdTrans[v.Command] = {}
@@ -1165,6 +1293,9 @@ for _,v in ipairs(DataBase) do
     Parameters[v.Command] = v.AltParameter or v.Command
   elseif v.Type == 'button' then
     ValidActions[v.Command] = true
+  elseif v.Type == 'variablemove' then
+    VariableMove[#VariableMove+1] = v.Command
+    --VariableMove[v.Command] = true
   end
 end
 
@@ -1249,5 +1380,6 @@ return {
   Parameters = Parameters,
   ValidActions = ValidActions,
   WriteAppTrans = WriteAppTrans,
+  VariableMove = VariableMove,
 }
 
