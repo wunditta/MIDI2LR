@@ -20,7 +20,8 @@ MIDI2LR.  If not, see <http://www.gnu.org/licenses/>.
 
 local LrView              = import 'LrView'
 
-local function slider(f,obstable,title,widthshare,binding,low,high,default)
+local function slider(f,obstable,title,widthshare,binding,low,high,default,forceintegral)
+  if forceintegral == nil then forceintegral = high - 10 > low end
   return
   f:row { 
     f:static_text {
@@ -32,7 +33,7 @@ local function slider(f,obstable,title,widthshare,binding,low,high,default)
       min = low, 
       max = high,
       width = LrView.share(widthshare..'_slider'),
-      integral = high - 10 > low
+      integral = forceintegral,
     }, -- slider
     f:static_text {
       title = LrView.bind(binding),
