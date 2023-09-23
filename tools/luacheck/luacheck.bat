@@ -1,1 +1,0 @@
-luacheck ..\..\src\plugin > luacheck.results

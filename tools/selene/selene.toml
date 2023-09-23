@@ -1,7 +1,0 @@
-std = "MIDI2LR"
-
-
-
-[rules]
-
-multiple_statements = "allow"
