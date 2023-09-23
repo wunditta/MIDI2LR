@@ -20,8 +20,10 @@ You should have received a copy of the GNU General Public License along with
 MIDI2LR.  If not, see <http://www.gnu.org/licenses/>. 
 ------------------------------------------------------------------------------]]
 
-local Database     = require 'Database'
-local LrPathUtils  = import 'LrPathUtils'       
+local Database      = require 'Database'
+local LrPathUtils   = import 'LrPathUtils'       
+local LrApplication = import 'LrApplication'
+local LrTasks       = import 'LrTasks'
 
 local menulocation = ""
 
@@ -75,3 +77,27 @@ file:write ("Running Build.lua generates files for the wiki: Commands.md. This f
 file:close()
 
 
+--Write all currently available develop settings (getDevelopSettings), as the official documentation is not up-to-date
+LrTasks.startAsyncTask ( function ()
+  local datafile = LrPathUtils.child(_PLUGIN.path, 'DevelopSettings.md')
+  local file = assert(io.open(datafile,'w'),LOC("$$$/AgImageIO/Errors/WriteFile=The file could not be written.")..' '..datafile)
+  file:write("All Develop Settings (LrPhoto:get/setDevelopSettings()) for Lightroom V"..LrApplication.versionString().." ("..os.date('%Y-%m-%d')..'):\n')
+  local settings = LrApplication:activeCatalog():getMultipleSelectedOrAllPhotos()[1]:getDevelopSettings()
+  local setlist = {}
+  local temptxt = ''
+  for key,val in pairs(settings) do
+    temptxt = "* "..key.." ("..type(val)..")"
+    if type(val)=='table' then
+      for skey,sval in pairs(val) do
+        setlist[#setlist+1] = temptxt.." -> "..skey..' = '..sval.." ("..type(sval)..")\n"
+      end
+    else
+      setlist[#setlist+1] = temptxt.."\n"
+    end
+  end
+  table.sort(setlist)
+  for _,line in ipairs(setlist) do
+    file:write(line)
+  end
+  file:close()
+end )
