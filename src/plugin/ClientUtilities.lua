@@ -29,6 +29,7 @@ local LrDialogs           = import 'LrDialogs'
 local LrLocalization      = import 'LrLocalization'
 local LrStringUtils       = import 'LrStringUtils'
 local LrTasks             = import 'LrTasks'
+local LrSelection         = import 'LrSelection'
 
 --modules may be library develop map book slideshow print web
 local needsModule = {
@@ -283,7 +284,7 @@ local sb_precisionList = {
   local_Whites2012=0,
   straightenAngle=3,
 }
-local function showBezel(param, value1, value2)
+local function showBezel(param, value1, value2, prefixtxt)
   local precision = sb_precisionList[param] or 4
   -- uses processVersion to index bezelname
   local processVersion = tonumber(LrDevelopController.getProcessVersion():match('%-?%d+'))
@@ -291,22 +292,11 @@ local function showBezel(param, value1, value2)
   -- if CmdTrans[param] exists, will try first [processVersion] then, if that doesn't exist, [LatestPVSupported], then fallback to param
   -- this is in case someone doesn't update MIDI2LR but Adobe goes to a higher process version not supported by MIDI2LR CmdTrans table
   local bezelname = Database.CmdTrans[param] and (Database.CmdTrans[param][processVersion] or Database.CmdTrans[param][Database.LatestPVSupported]) or param
+  if prefixtxt then bezelname = prefixtxt..' '..bezelname end
   if value2 then
-    LrDialogs.showBezel(bezelname..'  '..LrStringUtils.numberToStringWithSeparators(value1,precision)..'  '..LrStringUtils.numberToStringWithSeparators(value2,precision) )
+    LrDialogs.showBezel(bezelname..'  '..LrStringUtils.numberToStringWithSeparators(value1,precision)..'  ('..LOC("$$$/MIDI2LR/General/Pickup=picked up at")..' '..LrStringUtils.numberToStringWithSeparators(value2,precision)..')' )
   else
     LrDialogs.showBezel(bezelname..'  '..LrStringUtils.numberToStringWithSeparators(value1,precision))
-  end
-end
-
-local function fApplyFilter(filternumber)
-  return function()
-    local filterUuid = ProgramPreferences.Filters[filternumber]
-    if filterUuid == nil then return end
-    LrApplication.activeCatalog():setViewFilter(filterUuid)
-    if ProgramPreferences.ClientShowBezelOnChange then
-      local _,str = LrApplication.activeCatalog():getCurrentViewFilter()
-      if str then LrDialogs.showBezel(str) end -- str nil if not defined
-    end
   end
 end
 
@@ -337,6 +327,22 @@ local function RemoveFilters()
   LrApplication.activeCatalog():setViewFilter(nofilter)
   if ProgramPreferences.ClientShowBezelOnChange then
     LrDialogs.showBezel(Database.CmdTrans.FilterNone[1]) --PV doesn't matter
+  end
+end
+
+local function fApplyFilter(filternumber)
+  return function()
+    local filterUuid = ProgramPreferences.Filters[filternumber]
+    if filterUuid == nil then return end
+    local applied = LrApplication.activeCatalog():setViewFilter(filterUuid)
+    if applied == false then
+      RemoveFilters()
+    else
+      if ProgramPreferences.ClientShowBezelOnChange then
+        local _,str = LrApplication.activeCatalog():getCurrentViewFilter()
+        if str then LrDialogs.showBezel(str) end -- str nil if not defined
+      end
+    end
   end
 end
 
@@ -430,7 +436,8 @@ local function fToggleTool(param)
 end
 
 local ftt1_functionList = {
-  dust = LrDevelopController.goToSpotRemoval,
+  dust = LrDevelopController.goToHealing,
+  masking = LrDevelopController.goToMasking,
 }
 
 local function fToggleTool1(param) --for new version toggle tool
@@ -465,26 +472,45 @@ local function ApplySettings(settings)
   )
 end
 
-local function MIDIValueToLRValue(param, midi_value)
+local function MIDIValueToLRValue(param, midi_value, finetune_start, manual)
   -- must be called when in develop module with photo selected
   -- map midi range to develop parameter range
   -- expects midi_value 0.0-1.0, doesn't protect against out-of-range
   local min,max = Limits.GetMinMax(param)
-  return midi_value * (max-min) + min
-end
-
-local function LRValueToMIDIValue(param)
-  -- needs to be called in Develop module with photo selected
-  -- map develop parameter range to midi range
-  local min,max = Limits.GetMinMax(param)
-  local retval = (LrDevelopController.getValue(param)-min)/(max-min)
-  if retval > 1 then return 1 end
-  if retval < 0 then return 0 end
+  local retval = midi_value * (max-min) + min
+  if type(finetune_start) == 'number' then
+    local lrstart = finetune_start * (max-min) + min
+    local newrange = (math.abs(min) + math.abs(max)) / ProgramPreferences.FineMagnify
+    local oldmin, oldmax = min, max
+    min = lrstart - newrange / 2
+    max = min + newrange
+    local midi_center = finetune_start
+    if manual then midi_center = 0.5 end
+    retval = math.max(math.min(((midi_value - midi_center + 0.5) * (max-min) + min), oldmax), oldmin)
+  end
   return retval
 end
 
+local function LRValueToMIDIValue(param, finetune_start, manual)
+  -- needs to be called in Develop module with photo selected
+  -- map develop parameter range to midi range
+  local min,max = Limits.GetMinMax(param)
+  local lrval = LrDevelopController.getValue(param)
+  local retval = (lrval-min)/(max-min)
+  if type(finetune_start) == 'number' then
+    local lrstart = finetune_start * (max-min) + min
+    local newrange = (math.abs(min) + math.abs(max)) / ProgramPreferences.FineMagnify
+    min = lrstart - newrange / 2
+    max = min + newrange
+    local midi_center = finetune_start
+    if manual then midi_center = 0.5 end
+    retval = ((lrval - min) / (max - min)) - 0.5 + midi_center
+  end
+  return math.max(math.min(retval, 1), 0)
+end
+
 local function FullRefresh()
-  -- if this code is changed, change similar code in Profiles.lua
+  -- !!!!!!!!!!!!!!!!!!! Similar code exists in Profile.doprofilechange and Client.AdjustmentChangeObserver and has to be changed accordingly !!!!!!!!!!!!!!!!!!!
   if   (LrApplication.activeCatalog():getTargetPhoto() ~= nil) and
   (LrApplicationView.getCurrentModuleName() == 'develop') then
     -- refresh MIDI controller since mapping has changed
@@ -494,17 +520,28 @@ local function FullRefresh()
     --]]-----------end debug section
         local photoval = LrApplication.activeCatalog():getTargetPhoto():getDevelopSettings()
         -- refresh crop values
-        local val_bottom = photoval.CropBottom
+        --local val_bottom = photoval.CropBottom
+        --local val_bottom = Profiles.CropSideRev(photoval[Profiles.CropSideOriented('CropBottom', photoval.orientation)], photoval.orientation)
+        -- does not work: local param_top, param_left, param_bottom, param_right = table.unpack(select(2, Profiles.CropSideOriented('CropTop', photoval.orientation)))
+        local _, params = Profiles.CropSideOriented('CropTop', photoval.orientation)
+        local param_top, param_left, param_bottom, param_right = params[1], params[2], params[3], params[4]
+        local val_bottom = Profiles.CropSideRev(photoval[param_bottom], param_bottom, photoval.orientation)
         MIDI2LR.SERVER:send(string.format('CropBottomRight %g\n', val_bottom))
         MIDI2LR.SERVER:send(string.format('CropBottomLeft %g\n', val_bottom))
         MIDI2LR.SERVER:send(string.format('CropAll %g\n', val_bottom))
         MIDI2LR.SERVER:send(string.format('CropBottom %g\n', val_bottom))
-        local val_top = photoval.CropTop
+        --local val_top = photoval.CropTop
+        --local val_top = Profiles.CropSideRev(photoval[Profiles.CropSideOriented('CropTop', photoval.orientation)], photoval.orientation)
+        local val_top = Profiles.CropSideRev(photoval[param_top], param_top, photoval.orientation)
         MIDI2LR.SERVER:send(string.format('CropTopRight %g\n', val_top))
         MIDI2LR.SERVER:send(string.format('CropTopLeft %g\n', val_top))
         MIDI2LR.SERVER:send(string.format('CropTop %g\n', val_top))
-        local val_left = photoval.CropLeft
-        local val_right = photoval.CropRight
+        --local val_left = photoval.CropLeft
+        --local val_right = photoval.CropRight
+        --local val_left = Profiles.CropSideRev(photoval[Profiles.CropSideOriented('CropLeft', photoval.orientation)], photoval.orientation)
+        --local val_right = Profiles.CropSideRev(photoval[Profiles.CropSideOriented('CropRight', photoval.orientation)], photoval.orientation)
+        local val_left = Profiles.CropSideRev(photoval[param_left], param_left, photoval.orientation)
+        local val_right = Profiles.CropSideRev(photoval[param_right], param_right, photoval.orientation)
         MIDI2LR.SERVER:send(string.format('CropLeft %g\n', val_left))
         MIDI2LR.SERVER:send(string.format('CropRight %g\n', val_right))
         local range_v = (1 - (val_bottom - val_top))
@@ -520,31 +557,37 @@ local function FullRefresh()
           MIDI2LR.SERVER:send(string.format('CropMoveHorizontal %g\n', val_left / range_h))
         end
         for param,altparam in pairs(Database.Parameters) do
-          local min,max = Limits.GetMinMax(param)
-          local lrvalue
-          if altparam == 'Direct' then
-            lrvalue = LrDevelopController.getValue(param)
-          else
-            if param == altparam then
-              lrvalue = (photoval[param] or 0)
+          -- maybe give Crop items a different type than "parameter"
+          if param:sub(1,4) ~= 'Crop' then
+            local min,max = Limits.GetMinMax(param)
+            local lrvalue
+            if altparam == 'Direct' then
+              if LrDevelopController.getSelectedMask() then lrvalue = LrDevelopController.getValue(param) end
             else
-              lrvalue = (photoval[param] or 0) + (photoval[altparam] or 0)
+              if param == altparam then
+                lrvalue = (photoval[param] or 0)
+              else
+                lrvalue = (photoval[param] or 0) + (photoval[altparam] or 0)
+              end
             end
-          end
-          if type(min) == 'number' and type(max) == 'number' and type(lrvalue) == 'number' then
-            local midivalue = (lrvalue-min)/(max-min)
-            if midivalue >= 1.0 then
-              MIDI2LR.SERVER:send(string.format('%s 1.0\n', param))
-            elseif midivalue <= 0.0 then -- = catches -0.0 and sends it as 0.0
-              MIDI2LR.SERVER:send(string.format('%s 0.0\n', param))
-            else
-              MIDI2LR.SERVER:send(string.format('%s %g\n', param, midivalue))
+            if type(min) == 'number' and type(max) == 'number' and type(lrvalue) == 'number' then
+              local midivalue = (lrvalue-min)/(max-min)
+              if midivalue >= 1.0 then
+                MIDI2LR.SERVER:send(string.format('%s 1.0\n', param))
+              elseif midivalue <= 0.0 then -- = catches -0.0 and sends it as 0.0
+                MIDI2LR.SERVER:send(string.format('%s 0.0\n', param))
+              else
+                MIDI2LR.SERVER:send(string.format('%s %g\n', param, midivalue))
+              end
             end
           end
         end
       end
     )
   end
+  LrTasks.startAsyncTask ( function ()
+    Profiles.UpdateVariableMove(true)
+  end )
 end
 
 local function fSimulateKeys(keys, developonly, tool)
@@ -565,6 +608,72 @@ local function UpdatePointCurve(settings)
   return function()
     fChangePanel('tonePanel')
     ApplySettings(settings)
+  end
+end
+
+local function PointCurveUpDown(blacks, moveup, color)
+  return function()
+    if LrApplicationView.getCurrentModuleName() ~= 'develop' or LrApplication.activeCatalog():getTargetPhoto() == nil then return end
+    local maxamount = 5
+    local  factor  = 0
+    local setting = 'ToneCurvePV2012'
+    if color then setting = setting..color end
+    local points = LrDevelopController.getValue(setting)
+    local newpoints = {}
+    local xval = 0
+    local testamount = 0
+    -- Find the left and right most points
+    local xmin, ymin, xmax, ymax, xmindid, xmaxdid = nil, nil, nil, nil, false, false
+    for idx,val in ipairs(points) do
+      if math.floor(idx/2) ~= idx/2 then -- odd number, i.e. x
+        if val < (xmin or 256) then xmin = val; xmindid = true end
+        if val > (xmax or 0) then xmax = val; xmaxdid = true end
+      elseif xmindid then
+        ymin = val
+        xmindid = false
+      elseif xmaxdid then
+        ymax = val
+        xmaxdid = false
+      end
+    end
+    -- There are two scales (explanation for blacks):
+    -- xscale: diminishes the point movement the further right the point is, where the left most point has full effect (1 => maxamount), the right most point has 0 (does not move at all)
+    -- yscale: is the percentage how much maxamount is in relation to the y-value of the leftmost point; this is for awkward curves where the leftmost point is not the lowest one,
+    -- in such cases the points lower than the leftmost have to be affected more to keep the shape of the curve intact, as those values are more 'extreme', they are affected more
+    local yscale = 0
+    local xscale = 0
+    if blacks then
+      if not moveup and ymin < maxamount then maxamount = ymin end
+      yscale = maxamount / (255 - ymin)
+    else
+      if moveup and (255 - ymax) < maxamount then maxamount = (255 - ymax) end
+      yscale = maxamount / ymax
+    end
+    xscale = 1 / (xmax - xmin)
+    -- Now all points are moved. 'factor' is the diminishing effect of xscale depending on the actual x-value of the point
+    for idx,val in ipairs(points) do
+      if math.floor(idx/2) ~= idx/2 then -- odd number, i.e. x
+        if blacks then
+           factor  = 1 - (xscale * (val - xmin))^2.5
+        else
+           factor  = 1 - (xscale * (xmax - val))^2.5
+        end
+        xval = val
+      else -- even number, i.e. y
+        newpoints[#newpoints+1] = xval
+        if not moveup then  factor  =  factor  * -1 end
+        if blacks then
+          testamount = val + yscale * (255 - val) * factor
+        else
+          testamount = val + yscale * val * factor
+        end
+        if testamount < 0 then testamount = 0 end
+        if testamount > 255 then testamount = 255 end
+        newpoints[#newpoints+1] = testamount
+      end
+    end
+    fChangePanel('tonePanel')
+    LrDevelopController.setValue(setting, newpoints)
   end
 end
 
@@ -884,6 +993,120 @@ local function quickDevAdjustWB(par,val,cmd) --note lightroom applies this to al
     )
   end
 end
+
+local function VirtualCopyFromMaster()
+  -- currently only supports the (one) target photo, for all selected loop through getTargetPhotos() (see ToggleKeyword in Keywords.lua)
+  LrTasks.startAsyncTask(
+    function()
+      local LrCat = LrApplication.activeCatalog()
+      local TargetPhoto = LrCat:getTargetPhoto()
+      if TargetPhoto then
+        if TargetPhoto:getRawMetadata('isVirtualCopy') then
+          LrCat:setSelectedPhotos(TargetPhoto:getRawMetadata("masterPhoto"),{})
+        end
+        LrCat:createVirtualCopies()
+        LrDialogs.showBezel("Virtual Copy from Master")
+      end
+    end
+  )
+end
+
+local function Prev()
+  -- Native function selects first photo if none is selected
+  local TargetPhoto = LrApplication.activeCatalog():getTargetPhoto()
+  if TargetPhoto then
+    LrSelection.previousPhoto()
+  else
+    LrSelection.nextPhoto()
+  end
+end
+
+local function Next()
+  -- Native function selects last photo if none is selected
+  local TargetPhoto = LrApplication.activeCatalog():getTargetPhoto()
+  if TargetPhoto then
+    LrSelection.nextPhoto()
+  else
+    LrSelection.previousPhoto()
+  end
+end
+
+local function Select1Left()
+  -- Extends selection to 1 left
+  local TargetPhoto = LrApplication.activeCatalog():getTargetPhoto()
+  if TargetPhoto then
+    LrSelection.extendSelection('left',1)
+  else
+    LrSelection.extendSelection('right',1)
+  end
+end
+
+local function Select1Right()
+  -- Extends selection to 1 right
+  local TargetPhoto = LrApplication.activeCatalog():getTargetPhoto()
+  if TargetPhoto then
+    LrSelection.extendSelection('right',1)
+  else
+    LrSelection.extendSelection('left',1)
+  end
+end
+
+local function setController(param, value)
+  LrTasks.startAsyncTask( function()
+    if type(value) == 'number' then
+      MIDI2LR.SERVER:send(string.format('%s %g\n', param, value))
+    end
+  end )
+end
+
+--[[ obsolete: if dialog is shown no input is accepted therefore a second click cannot confirm the dialog
+local function DeleteSelected()
+  LrTasks.startAsyncTask(function()
+    local SelPhotos = LrApplication.activeCatalog():getTargetPhotos()
+    --photo:getContainedCollections()
+    --photo:getContainedPublishedCollections()
+    --"$$$/AgExport/PhotoWasDeleted=Das Foto wurde gelöscht."
+    local numreal = 0
+    local numvirtual = 0
+    for _,TarPhoto in ipairs(SelPhotos) do
+      if TarPhoto:getRawMetadata('isVirtualCopy') then
+        numvirtual = numvirtual + 1
+      else
+        numreal = numreal + 1
+      end
+    end
+    if numreal+numvirtual == 0 then
+      LrDialogs.message(LOC("$$$/AgSlideshow/Toolbar/toolbarInfoText/noSelPhotos=No SelPhotos selected."))
+      return
+    end
+    local txt = ''
+    local permant = LOC("$$$/MIDI2LR/DeleteDialog/ConformDelete/recycle=and moved to the recycle bin")
+    if ProgramPreferences.DeleteAnyhow then
+      permant = LOC("$$$/MIDI2LR/DeleteDialog/ConformDelete/permanent=permanently")
+    end
+    if numreal == 1 then
+      txt = LOC("$$$/MIDI2LR/DeleteDialog/ConformDelete/Single=^1 photo (and all its virtual copies) will be deleted ^2. It will be removed from your Lr Catalog and any synced Lr clients.", numreal, permant)
+    elseif numreal > 1 then
+      txt = LOC("$$$/MIDI2LR/DeleteDialog/ConformDelete/Plural=^1 photos (and all their virtual copies) will be deleted ^2. They will be removed from your Lr Catalog and any synced Lr clients.", numreal, permant)
+    end
+    if numreal > 0 then
+      if numvirtual == 1 then
+        txt = txt..LOC("$$$/AgLibrary/DeleteDialog/Explanation/VirtualCopiesToo/Single=^1One virtual copy will also be removed.", " ")
+      elseif numvirtual > 1 then
+        txt = txt..LOC("$$$/AgLibrary/DeleteDialog/Explanation/VirtualCopiesToo/Plural=^1^2 virtual copies will also be removed.", " ", numvirtual)
+      end
+    else
+      if numvirtual == 1 then
+        txt = txt..LOC("$$$/AgLibrary/DeleteDialog/VirtualCopies/RemoveSingle=Remove the selected virtual copy?")
+      elseif numvirtual > 1 then
+        txt = txt..LOC("$$$/AgLibrary/DeleteDialog/VirtualCopies/RemovePlural=Remove the ^1 selected virtual copies?", numvirtual)
+      end
+    end
+    LrDialogs.confirm(txt)
+  end )
+end
+--]]
+
 return {
   ApplySettings = ApplySettings,
   FullRefresh = FullRefresh,
@@ -919,4 +1142,13 @@ return {
   showBezel = showBezel,
   wrapFOM = wrapFOM,
   wrapForEachPhoto = wrapForEachPhoto,
+  VirtualCopyFromMaster = VirtualCopyFromMaster,
+  Prev = Prev,
+  Next = Next,
+  Select1Right = Select1Right,
+  Select1Left = Select1Left,
+  fConfirmDialog = fConfirmDialog,
+  DeleteSelected = DeleteSelected,
+  PointCurveUpDown = PointCurveUpDown,
+  setController = setController,
 }
